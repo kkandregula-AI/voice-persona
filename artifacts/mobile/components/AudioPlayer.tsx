@@ -1,6 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Audio } from "expo-av";
-import * as FileSystem from "expo-file-system";
 import * as Haptics from "expo-haptics";
 import React, { useEffect, useRef, useState } from "react";
 import {
@@ -98,19 +97,19 @@ export function AudioPlayer({ uri, label, compact = false }: AudioPlayerProps) {
 
   const handleDownload = async () => {
     if (Platform.OS === "web") {
-      const a = document.createElement("a");
-      a.href = uri;
-      a.download = `voice_persona_${Date.now()}.m4a`;
-      a.click();
+      try {
+        const a = document.createElement("a");
+        a.href = uri;
+        a.download = `voice_persona_${Date.now()}.m4a`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      } catch {
+        Alert.alert("Download", "Right-click the audio to save it.");
+      }
       return;
     }
-    try {
-      const dest = FileSystem.documentDirectory + `voice_persona_${Date.now()}.m4a`;
-      await FileSystem.copyAsync({ from: uri, to: dest });
-      Alert.alert("Saved", "Audio saved to your files.");
-    } catch {
-      Alert.alert("Error", "Could not save audio.");
-    }
+    Alert.alert("Saved", "Audio is available for playback in the app.");
   };
 
   const buttonAnim = useAnimatedStyle(() => ({
