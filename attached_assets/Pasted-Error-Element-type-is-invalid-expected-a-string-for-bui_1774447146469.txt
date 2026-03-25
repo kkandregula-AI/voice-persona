@@ -1,0 +1,67 @@
+Error: Element type is invalid: expected a string (for built-in components) or a class/function (for composite components) but got: undefined.
+
+This error is located at:
+    at anonymous (https://voice-persona-gen.replit.app/1774446239394-136/_expo/static/js/ios/bundle.js:1468:180)
+    at KeyboardControllerView (<anonymous>)
+    at Animated(Anonymous) (https://voice-persona-gen.replit.app/1774446239394-136/_expo/static/js/ios/bundle.js:418:466)
+    at AnimatedComponent(Animated(Anonymous)) (https://voice-persona-gen.replit.app/1774446239394-136/_expo/static/js/ios/bundle.js:1318:237)
+    at Animated(Anonymous) (https://voice-persona-gen.replit.app/1774446239394-136/_expo/static/js/ios/bundle.js:1318:605)
+    at T (https://voice-persona-gen.replit.app/1774446239394-136/_expo/static/js/ios/bundle.js:1678:1436)
+    at RCTView (<anonymous>)
+    at View (https://voice-persona-gen.replit.app/1774446239394-136/_expo/static/js/ios/bundle.js:296:1246)
+    at o (https://voice-persona-gen.replit.app/1774446239394-136/_expo/static/js/ios/bundle.js:1600:330)
+    at o (https://voice-persona-gen.replit.app/1774446239394-136/_expo/static/js/ios/bundle.js:1549:804)
+    at s (https://voice-persona-gen.replit.app/1774446239394-136/_expo/static/js/ios/bundle.js:1726:360)
+    at RNCSafeAreaProvider (<anonymous>)
+    at anonymous (https://voice-persona-gen.replit.app/1774446239394-136/_expo/static/js/ios/bundle.js:867:477)
+    at _ (https://voice-persona-gen.replit.app/1774446239394-136/_expo/static/js/ios/bundle.js:1499:832)
+    at Suspense (<anonymous>)
+    at anonymous (https://voice-persona-gen.replit.app/1774446239394-136/_expo/static/js/ios/bundle.js:801:383)
+    at s (https://voice-persona-gen.replit.app/1774446239394-136/_expo/static/js/ios/bundle.js:810:3681)
+    at anonymous (https://voice-persona-gen.replit.app/1774446239394-136/_expo/static/js/ios/bundle.js:748:455)
+    at anonymous (https://voice-persona-gen.replit.app/1774446239394-136/_expo/static/js/ios/bundle.js:677:230)
+    at anonymous (https://voice-persona-gen.replit.app/1774446239394-136/_expo/static/js/ios/bundle.js:746:127)
+    at anonymous (https://voice-persona-gen.replit.app/1774446239394-136/_expo/static/js/ios/bundle.js:710:325)
+    at anonymous (https://voice-persona-gen.replit.app/1774446239394-136/_expo/static/js/ios/bundle.js:735:189)
+    at anonymous (https://voice-persona-gen.replit.app/1774446239394-136/_expo/static/js/ios/bundle.js:754:390)
+    at t (https://voice-persona-gen.replit.app/1774446239394-136/_expo/static/js/ios/bundle.js:743:696)
+    at anonymous (https://voice-persona-gen.replit.app/1774446239394-136/_expo/static/js/ios/bundle.js:743:227)
+    at U (https://voice-persona-gen.replit.app/1774446239394-136/_expo/static/js/ios/bundle.js:1054:2992)
+    at RNCSafeAreaProvider (<anonymous>)
+    at anonymous (https://voice-persona-gen.replit.app/1774446239394-136/_expo/static/js/ios/bundle.js:867:477)
+    at anonymous (https://voice-persona-gen.replit.app/1774446239394-136/_expo/static/js/ios/bundle.js:984:202)
+    at anonymous (https://voice-persona-gen.replit.app/1774446239394-136/_expo/static/js/ios/bundle.js:1054:1058)
+    at anonymous (https://voice-persona-gen.replit.app/1774446239394-136/_expo/static/js/ios/bundle.js:683:126)
+    at anonymous (https://voice-persona-gen.replit.app/1774446239394-136/_expo/static/js/ios/bundle.js:677:230)
+    at anonymous (https://voice-persona-gen.replit.app/1774446239394-136/_expo/static/js/ios/bundle.js:660:1023)
+    at anonymous (https://voice-persona-gen.replit.app/1774446239394-136/_expo/static/js/ios/bundle.js:1058:552)
+    at L (https://voice-persona-gen.replit.app/1774446239394-136/_expo/static/js/ios/bundle.js:1054:1840)
+    at anonymous (https://voice-persona-gen.replit.app/1774446239394-136/_expo/static/js/ios/bundle.js:1054:961)
+    at RCTView (<anonymous>)
+    at View (https://voice-persona-gen.replit.app/1774446239394-136/_expo/static/js/ios/bundle.js:296:1246)
+    at c (https://voice-persona-gen.replit.app/1774446239394-136/_expo/static/js/ios/bundle.js:295:340)
+
+_o
+    bundle.js:181:109847
+f
+    bundle.js:181:54641
+m
+    bundle.js:181:56290
+v
+    bundle.js:181:58223
+anonymous
+    bundle.js:181:58752
+Ba
+    bundle.js:181:65472
+hi
+    bundle.js:181:78223
+io
+    bundle.js:181:102943
+lo
+    bundle.js:181:101968
+to
+    bundle.js:181:101810
+$u
+    bundle.js:181:99092
+Qt
+    bundle.js:181:29260
