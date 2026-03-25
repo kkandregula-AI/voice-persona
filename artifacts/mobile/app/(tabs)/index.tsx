@@ -38,12 +38,58 @@ function getModeParams(mode: VoiceMode, sampleDuration: number) {
   const base = sampleDuration > 0 ? Math.min(sampleDuration / 15, 1) : 0.5;
   switch (mode) {
     case "news":
-      return { rate: 0.85, pitch: 0.9 + base * 0.1 };
+      return { rate: 0.85, pitch: 0.9 + base * 0.1, volume: 1.0 };
     case "story":
-      return { rate: 0.75, pitch: 1.0 + base * 0.15 };
+      return { rate: 0.75, pitch: 1.0 + base * 0.15, volume: 1.0 };
     default:
-      return { rate: 0.9 + base * 0.1, pitch: 1.0 + base * 0.05 };
+      return { rate: 0.9 + base * 0.1, pitch: 1.0 + base * 0.05, volume: 1.0 };
   }
+}
+
+// Unlock iOS Safari audio context — must be called from a user gesture handler
+function unlockAudioContext() {
+  if (Platform.OS !== "web") return;
+  try {
+    const AudioContextClass =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext })
+        .webkitAudioContext;
+    if (!AudioContextClass) return;
+    const ctx = new AudioContextClass();
+    const buffer = ctx.createBuffer(1, 1, 22050);
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+    source.start(0);
+    setTimeout(() => ctx.close(), 500);
+  } catch {}
+}
+
+// Use Web Speech API directly on web for better volume control
+function speakOnWeb(
+  text: string,
+  params: { rate: number; pitch: number; volume: number },
+  onDone: () => void,
+  onError: () => void
+): boolean {
+  if (Platform.OS !== "web" || typeof window === "undefined" || !window.speechSynthesis) {
+    return false;
+  }
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.rate = params.rate;
+  utterance.pitch = params.pitch;
+  utterance.volume = 1; // Always max on web
+  // Pick the best available voice (prefer local/native voices which are louder)
+  const voices = window.speechSynthesis.getVoices();
+  const preferred = voices.find(
+    (v) => v.localService && v.lang.startsWith("en")
+  ) || voices.find((v) => v.lang.startsWith("en")) || voices[0];
+  if (preferred) utterance.voice = preferred;
+  utterance.onend = onDone;
+  utterance.onerror = onError;
+  window.speechSynthesis.speak(utterance);
+  return true;
 }
 
 export default function StudioScreen() {
@@ -157,25 +203,39 @@ export default function StudioScreen() {
       return;
     }
 
+    // Unlock audio on iOS Safari — called from a user gesture
+    unlockAudioContext();
+
     setIsGenerating(true);
     setCurrentAudioUri(null);
 
     const params = getModeParams(currentMode, voiceSample.duration);
 
+    const onDone = () => {
+      setIsSpeaking(false);
+      setIsGenerating(false);
+    };
+    const onError = () => {
+      setIsSpeaking(false);
+      setIsGenerating(false);
+    };
+
     try {
       setIsSpeaking(true);
-      await Speech.speak(currentText, {
-        rate: params.rate,
-        pitch: params.pitch,
-        onDone: () => {
-          setIsSpeaking(false);
-          setIsGenerating(false);
-        },
-        onError: () => {
-          setIsSpeaking(false);
-          setIsGenerating(false);
-        },
-      });
+
+      // On web use the raw Web Speech API for max volume control
+      const handledByWeb = speakOnWeb(currentText, params, onDone, onError);
+
+      if (!handledByWeb) {
+        // Native path (Expo Go / iOS / Android)
+        await Speech.speak(currentText, {
+          rate: params.rate,
+          pitch: params.pitch,
+          volume: params.volume,
+          onDone,
+          onError,
+        });
+      }
 
       const entry: GeneratedEntry = {
         id: Date.now().toString() + Math.random().toString(36).substr(2, 6),
@@ -192,7 +252,11 @@ export default function StudioScreen() {
   };
 
   const stopSpeech = () => {
-    Speech.stop();
+    if (Platform.OS === "web" && typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    } else {
+      Speech.stop();
+    }
     setIsSpeaking(false);
     setIsGenerating(false);
   };
