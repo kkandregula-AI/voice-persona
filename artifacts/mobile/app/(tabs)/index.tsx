@@ -337,6 +337,8 @@ export default function StudioScreen() {
     setIsGenerating(true);
     setCurrentAudioUri(null);
 
+    let usedElevenLabs = false;
+
     if (elevenLabsKey && Platform.OS === "web") {
       try {
         setCloneStatus(clonedVoiceId ? "done" : "cloning");
@@ -361,15 +363,22 @@ export default function StudioScreen() {
         };
         addToHistory(entry);
         setIsGenerating(false);
+        usedElevenLabs = true;
       } catch (err: unknown) {
         setCloneStatus("error");
-        setIsGenerating(false);
-        const msg =
-          err instanceof Error ? err.message : "ElevenLabs generation failed.";
-        Alert.alert("Voice Cloning Error", msg);
+        const raw = err instanceof Error ? err.message : "";
+        const isPermission =
+          raw.toLowerCase().includes("permission") ||
+          raw.toLowerCase().includes("missing the permission") ||
+          raw.toLowerCase().includes("create_instant_voice_clone");
+        const msg = isPermission
+          ? "Your ElevenLabs key doesn't have voice cloning permission.\n\nVoice cloning requires a paid ElevenLabs plan (Starter $5/mo+).\n\nFalling back to system voice now."
+          : (raw || "ElevenLabs failed.") + "\n\nFalling back to system voice.";
+        Alert.alert("Voice Cloning Unavailable", msg);
       }
-      return;
     }
+
+    if (usedElevenLabs) return;
 
     const params = getModeParams(currentMode, voiceSample.duration);
     const onDone = () => {
@@ -497,16 +506,16 @@ export default function StudioScreen() {
 
       {showSettings && (
         <Animated.View entering={FadeInDown} style={styles.elSettingsBody}>
-          {!hasElevenLabs && (
-            <View style={styles.elInfoBox}>
-              <Ionicons name="information-circle" size={16} color={Colors.accent} />
-              <Text style={styles.elInfoText}>
-                Without a key, the app uses your device's built-in voice engine — it{" "}
-                <Text style={{ fontStyle: "italic" }}>does not</Text> clone your
-                actual voice. Add a free ElevenLabs key for real voice cloning.
-              </Text>
-            </View>
-          )}
+          <View style={styles.elInfoBox}>
+            <Ionicons name="information-circle" size={16} color={Colors.accent} />
+            <Text style={styles.elInfoText}>
+              <Text style={{ fontWeight: "700", color: Colors.text }}>Voice cloning requires a paid ElevenLabs plan</Text>
+              {" "}(Starter $5/mo+). The free tier only allows text-to-speech with
+              preset voices, not cloning your actual voice.{"\n\n"}
+              Without a key or on the free plan, the app uses your device's
+              built-in voice engine as a fallback.
+            </Text>
+          </View>
 
           <Text style={styles.elLabel}>ElevenLabs API Key</Text>
           <View style={styles.elInputRow}>
