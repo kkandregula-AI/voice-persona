@@ -23,6 +23,7 @@ export interface GeneratedEntry {
   uri?: string;
   createdAt: number;
   duration?: number;
+  cloned?: boolean;
 }
 
 interface VoiceContextType {
@@ -40,6 +41,10 @@ interface VoiceContextType {
   setCurrentText: (t: string) => void;
   currentAudioUri: string | null;
   setCurrentAudioUri: (uri: string | null) => void;
+  elevenLabsKey: string;
+  setElevenLabsKey: (key: string) => void;
+  clonedVoiceId: string | null;
+  setClonedVoiceId: (id: string | null) => void;
 }
 
 const VoiceContext = createContext<VoiceContextType | null>(null);
@@ -47,6 +52,7 @@ const VoiceContext = createContext<VoiceContextType | null>(null);
 const STORAGE_KEYS = {
   VOICE_SAMPLE: "voice_persona_sample",
   HISTORY: "voice_persona_history",
+  ELEVENLABS_KEY: "voice_persona_elevenlabs_key",
 };
 
 export function VoiceProvider({ children }: { children: React.ReactNode }) {
@@ -56,22 +62,39 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [currentText, setCurrentText] = useState("");
   const [currentAudioUri, setCurrentAudioUri] = useState<string | null>(null);
+  const [elevenLabsKey, setElevenLabsKeyState] = useState("");
+  const [clonedVoiceId, setClonedVoiceId] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
       try {
-        const [sampleJson, historyJson] = await Promise.all([
+        const [sampleJson, historyJson, elKey] = await Promise.all([
           AsyncStorage.getItem(STORAGE_KEYS.VOICE_SAMPLE),
           AsyncStorage.getItem(STORAGE_KEYS.HISTORY),
+          AsyncStorage.getItem(STORAGE_KEYS.ELEVENLABS_KEY),
         ]);
         if (sampleJson) setVoiceSampleState(JSON.parse(sampleJson));
         if (historyJson) setHistory(JSON.parse(historyJson));
+        if (elKey) setElevenLabsKeyState(elKey);
       } catch {}
     })();
   }, []);
 
+  const setElevenLabsKey = useCallback(async (key: string) => {
+    setElevenLabsKeyState(key);
+    setClonedVoiceId(null);
+    try {
+      if (key) {
+        await AsyncStorage.setItem(STORAGE_KEYS.ELEVENLABS_KEY, key);
+      } else {
+        await AsyncStorage.removeItem(STORAGE_KEYS.ELEVENLABS_KEY);
+      }
+    } catch {}
+  }, []);
+
   const setVoiceSample = useCallback(async (sample: VoiceSample | null) => {
     setVoiceSampleState(sample);
+    setClonedVoiceId(null);
     try {
       if (sample) {
         await AsyncStorage.setItem(STORAGE_KEYS.VOICE_SAMPLE, JSON.stringify(sample));
@@ -119,6 +142,10 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
         setCurrentText,
         currentAudioUri,
         setCurrentAudioUri,
+        elevenLabsKey,
+        setElevenLabsKey,
+        clonedVoiceId,
+        setClonedVoiceId,
       }}
     >
       {children}

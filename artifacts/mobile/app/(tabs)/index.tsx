@@ -6,6 +6,7 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -52,6 +53,17 @@ function getModeParams(mode: VoiceMode, sampleDuration: number) {
       return { rate: 0.75, pitch: 1.0 + base * 0.15, volume: 1.0 };
     default:
       return { rate: 0.9 + base * 0.1, pitch: 1.0 + base * 0.05, volume: 1.0 };
+  }
+}
+
+function getElevenLabsVoiceSettings(mode: VoiceMode) {
+  switch (mode) {
+    case "news":
+      return { stability: 0.85, similarity_boost: 0.75, style: 0.1, use_speaker_boost: true };
+    case "story":
+      return { stability: 0.45, similarity_boost: 0.80, style: 0.75, use_speaker_boost: true };
+    default:
+      return { stability: 0.65, similarity_boost: 0.85, style: 0.3, use_speaker_boost: true };
   }
 }
 
@@ -103,6 +115,85 @@ function speakOnWeb(
   return true;
 }
 
+async function generateWithElevenLabs(
+  voiceSampleUri: string,
+  text: string,
+  mode: VoiceMode,
+  apiKey: string,
+  cachedVoiceId: string | null
+): Promise<{ audioUrl: string; voiceId: string }> {
+  let voiceId = cachedVoiceId;
+
+  if (!voiceId) {
+    const audioResponse = await fetch(voiceSampleUri);
+    const audioBlob = await audioResponse.blob();
+
+    const formData = new FormData();
+    formData.append("name", `VoicePersona_${Date.now()}`);
+    formData.append("files", audioBlob, "voice_sample");
+    formData.append("description", "Cloned for Voice Persona AI");
+
+    const cloneRes = await fetch("https://api.elevenlabs.io/v1/voices/add", {
+      method: "POST",
+      headers: { "xi-api-key": apiKey },
+      body: formData,
+    });
+
+    if (!cloneRes.ok) {
+      let msg = "Voice cloning failed. Check your ElevenLabs key and try again.";
+      try {
+        const err = await cloneRes.json() as { detail?: { message?: string } };
+        if (err?.detail?.message) msg = err.detail.message;
+      } catch {}
+      throw new Error(msg);
+    }
+
+    const cloneData = await cloneRes.json() as { voice_id: string };
+    voiceId = cloneData.voice_id;
+  }
+
+  const voiceSettings = getElevenLabsVoiceSettings(mode);
+  const ttsRes = await fetch(
+    `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
+    {
+      method: "POST",
+      headers: {
+        "xi-api-key": apiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        text,
+        model_id: "eleven_multilingual_v2",
+        voice_settings: voiceSettings,
+      }),
+    }
+  );
+
+  if (!ttsRes.ok) {
+    let msg = "Speech generation failed. Please try again.";
+    try {
+      const err = await ttsRes.json() as { detail?: { message?: string } };
+      if (err?.detail?.message) msg = err.detail.message;
+    } catch {}
+    throw new Error(msg);
+  }
+
+  const audioBuffer = await ttsRes.arrayBuffer();
+  const blob = new Blob([audioBuffer], { type: "audio/mpeg" });
+  const audioUrl = URL.createObjectURL(blob);
+
+  return { audioUrl, voiceId };
+}
+
+async function deleteElevenLabsVoice(voiceId: string, apiKey: string) {
+  try {
+    await fetch(`https://api.elevenlabs.io/v1/voices/${voiceId}`, {
+      method: "DELETE",
+      headers: { "xi-api-key": apiKey },
+    });
+  } catch {}
+}
+
 async function enhanceTextWithAI(
   text: string,
   mode: VoiceMode
@@ -141,6 +232,10 @@ export default function StudioScreen() {
     setCurrentText,
     currentAudioUri,
     setCurrentAudioUri,
+    elevenLabsKey,
+    setElevenLabsKey,
+    clonedVoiceId,
+    setClonedVoiceId,
   } = useVoice();
 
   const [isRecording, setIsRecording] = useState(false);
@@ -148,9 +243,17 @@ export default function StudioScreen() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isEnhancing, setIsEnhancing] = useState(false);
   const [showVoiceGuide, setShowVoiceGuide] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [keyInput, setKeyInput] = useState(elevenLabsKey);
+  const [showKey, setShowKey] = useState(false);
+  const [cloneStatus, setCloneStatus] = useState<"idle" | "cloning" | "done" | "error">("idle");
 
   const recordingRef = useRef<Audio.Recording | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    setKeyInput(elevenLabsKey);
+  }, [elevenLabsKey]);
 
   useEffect(() => {
     Audio.setAudioModeAsync({
@@ -185,6 +288,7 @@ export default function StudioScreen() {
       setIsRecording(true);
       setShowVoiceGuide(false);
       setRecordingDuration(0);
+      setCloneStatus("idle");
       timerRef.current = setInterval(() => {
         setRecordingDuration((d) => {
           if (d >= 20) {
@@ -229,6 +333,15 @@ export default function StudioScreen() {
     recordingRef.current = null;
   };
 
+  const handleReRecord = async () => {
+    if (clonedVoiceId && elevenLabsKey) {
+      deleteElevenLabsVoice(clonedVoiceId, elevenLabsKey);
+    }
+    setVoiceSample(null);
+    setCloneStatus("idle");
+    setShowVoiceGuide(false);
+  };
+
   const handleRecordPress = () => {
     if (isRecording) {
       stopRecording();
@@ -248,12 +361,46 @@ export default function StudioScreen() {
       Alert.alert("No Voice Sample", "Please record a voice sample first.");
       return;
     }
+
     unlockAudioContext();
     setIsGenerating(true);
     setCurrentAudioUri(null);
 
-    const params = getModeParams(currentMode, voiceSample.duration);
+    if (elevenLabsKey && Platform.OS === "web") {
+      try {
+        setCloneStatus(clonedVoiceId ? "done" : "cloning");
+        const { audioUrl, voiceId } = await generateWithElevenLabs(
+          voiceSample.uri,
+          currentText,
+          currentMode,
+          elevenLabsKey,
+          clonedVoiceId
+        );
+        setClonedVoiceId(voiceId);
+        setCloneStatus("done");
+        setCurrentAudioUri(audioUrl);
 
+        const entry: GeneratedEntry = {
+          id: Date.now().toString() + Math.random().toString(36).substr(2, 6),
+          text: currentText.trim(),
+          mode: currentMode,
+          uri: audioUrl,
+          createdAt: Date.now(),
+          cloned: true,
+        };
+        addToHistory(entry);
+        setIsGenerating(false);
+      } catch (err: unknown) {
+        setCloneStatus("error");
+        setIsGenerating(false);
+        const msg =
+          err instanceof Error ? err.message : "ElevenLabs generation failed.";
+        Alert.alert("Voice Cloning Error", msg);
+      }
+      return;
+    }
+
+    const params = getModeParams(currentMode, voiceSample.duration);
     const onDone = () => {
       setIsSpeaking(false);
       setIsGenerating(false);
@@ -280,6 +427,7 @@ export default function StudioScreen() {
         text: currentText.trim(),
         mode: currentMode,
         createdAt: Date.now(),
+        cloned: false,
       };
       addToHistory(entry);
     } catch {
@@ -328,6 +476,11 @@ export default function StudioScreen() {
     }
   };
 
+  const saveKey = () => {
+    setElevenLabsKey(keyInput.trim());
+    setShowSettings(false);
+  };
+
   const modeColor =
     currentMode === "news"
       ? Colors.newsMode
@@ -336,6 +489,119 @@ export default function StudioScreen() {
       : Colors.normalMode;
 
   const topPad = Platform.OS === "web" ? 20 : insets.top;
+
+  const hasElevenLabs = !!elevenLabsKey && Platform.OS === "web";
+  const isWebPlatform = Platform.OS === "web";
+
+  const elevenLabsSettingsCard = (
+    <View style={styles.elSettingsCard}>
+      <Pressable
+        onPress={() => setShowSettings((s) => !s)}
+        style={styles.elSettingsHeader}
+      >
+        <View style={styles.elSettingsLeft}>
+          <View
+            style={[
+              styles.elStatusDot,
+              { backgroundColor: hasElevenLabs ? "#22c55e" : "#f59e0b" },
+            ]}
+          />
+          <View>
+            <Text style={styles.elSettingsTitle}>
+              {hasElevenLabs ? "Real Voice Cloning Active" : "Using System Voice"}
+            </Text>
+            <Text style={styles.elSettingsSubtitle}>
+              {hasElevenLabs
+                ? "ElevenLabs AI · Your actual voice is cloned"
+                : "Add ElevenLabs key to clone your real voice"}
+            </Text>
+          </View>
+        </View>
+        <Ionicons
+          name={showSettings ? "chevron-up" : "settings-outline"}
+          size={18}
+          color={Colors.textTertiary}
+        />
+      </Pressable>
+
+      {showSettings && (
+        <Animated.View entering={FadeInDown} style={styles.elSettingsBody}>
+          {!hasElevenLabs && (
+            <View style={styles.elInfoBox}>
+              <Ionicons name="information-circle" size={16} color={Colors.accent} />
+              <Text style={styles.elInfoText}>
+                Without a key, the app uses your device's built-in voice engine — it{" "}
+                <Text style={{ fontStyle: "italic" }}>does not</Text> clone your
+                actual voice. Add a free ElevenLabs key for real voice cloning.
+              </Text>
+            </View>
+          )}
+
+          <Text style={styles.elLabel}>ElevenLabs API Key</Text>
+          <View style={styles.elInputRow}>
+            <TextInput
+              style={styles.elInput}
+              value={keyInput}
+              onChangeText={setKeyInput}
+              placeholder="sk-..."
+              placeholderTextColor={Colors.textTertiary}
+              secureTextEntry={!showKey}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <Pressable
+              onPress={() => setShowKey((s) => !s)}
+              style={styles.elEyeBtn}
+            >
+              <Ionicons
+                name={showKey ? "eye-off" : "eye"}
+                size={18}
+                color={Colors.textTertiary}
+              />
+            </Pressable>
+          </View>
+
+          <View style={styles.elActions}>
+            <Pressable
+              onPress={() =>
+                Linking.openURL("https://elevenlabs.io/app/settings/api-keys")
+              }
+            >
+              <Text style={styles.elGetKeyLink}>
+                Get a free key at elevenlabs.io →
+              </Text>
+            </Pressable>
+            <View style={styles.elBtnRow}>
+              {elevenLabsKey ? (
+                <Pressable
+                  onPress={() => {
+                    setKeyInput("");
+                    setElevenLabsKey("");
+                    setClonedVoiceId(null);
+                    setShowSettings(false);
+                  }}
+                  style={styles.elRemoveBtn}
+                >
+                  <Text style={styles.elRemoveBtnText}>Remove Key</Text>
+                </Pressable>
+              ) : null}
+              <Pressable
+                onPress={saveKey}
+                style={[styles.elSaveBtn, { backgroundColor: modeColor }]}
+              >
+                <Text style={styles.elSaveBtnText}>Save Key</Text>
+              </Pressable>
+            </View>
+          </View>
+
+          <Text style={styles.elDisclaimer}>
+            Your key is stored locally on this device only and never sent to
+            our servers. Free tier gives 10,000 characters/month.
+          </Text>
+        </Animated.View>
+      )}
+    </View>
+  );
 
   const recordCard = (
     <View style={styles.recordCard}>
@@ -393,9 +659,10 @@ export default function StudioScreen() {
             />
             <Text style={[styles.liveText, { color: Colors.success }]}>
               Voice captured · {Math.round(voiceSample.duration)}s
+              {clonedVoiceId ? " · Cloned ✓" : ""}
             </Text>
           </View>
-          <Pressable onPress={() => { setVoiceSample(null); setShowVoiceGuide(false); }}>
+          <Pressable onPress={handleReRecord}>
             <Text style={styles.clearText}>Re-record</Text>
           </Pressable>
         </Animated.View>
@@ -415,7 +682,6 @@ export default function StudioScreen() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <View style={[styles.container, { paddingTop: topPad }]}>
-        {/* Web header bar */}
         {isWide && (
           <View style={styles.webHeader}>
             <View style={styles.webHeaderInner}>
@@ -436,7 +702,6 @@ export default function StudioScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* Mobile header */}
           {!isWide && (
             <View style={styles.header}>
               <View>
@@ -456,7 +721,13 @@ export default function StudioScreen() {
             </View>
           )}
 
-          {/* Voice Guide Modal Card */}
+          {/* ElevenLabs settings bar */}
+          {isWebPlatform && (
+            <View style={styles.elSettingsWrapper}>
+              {elevenLabsSettingsCard}
+            </View>
+          )}
+
           {showVoiceGuide && !isRecording && (
             <Animated.View entering={FadeInDown} style={styles.voiceGuideCard}>
               <View style={styles.voiceGuideHeader}>
@@ -469,8 +740,16 @@ export default function StudioScreen() {
                   "{VOICE_SAMPLE_SENTENCE}"
                 </Text>
               </View>
+              {hasElevenLabs && (
+                <View style={[styles.elInfoBox, { marginTop: 8 }]}>
+                  <Ionicons name="sparkles" size={14} color="#22c55e" />
+                  <Text style={[styles.elInfoText, { color: "#22c55e" }]}>
+                    ElevenLabs is active — your voice will be genuinely cloned!
+                  </Text>
+                </View>
+              )}
               <Text style={styles.voiceGuideTip}>
-                💡 Speak clearly in a quiet room for best results. Aim for 10–20 seconds.
+                💡 Speak clearly in a quiet room. Aim for 10–20 seconds.
               </Text>
               <View style={styles.voiceGuideActions}>
                 <Pressable
@@ -495,9 +774,7 @@ export default function StudioScreen() {
             </Animated.View>
           )}
 
-          {/* Two-column layout on wide screens */}
           <View style={isWide ? styles.twoCol : styles.oneCol}>
-            {/* Left column: Record + Mode */}
             <View style={isWide ? styles.leftCol : styles.fullWidth}>
               {isWide && (
                 <Text style={styles.sectionLabel}>Step 1 · Your Voice</Text>
@@ -517,7 +794,6 @@ export default function StudioScreen() {
               </View>
             </View>
 
-            {/* Right column: Text + Generate */}
             <View style={isWide ? styles.rightCol : styles.fullWidth}>
               <View style={styles.section}>
                 <View style={styles.sectionRow}>
@@ -587,9 +863,9 @@ export default function StudioScreen() {
                 </Text>
               </View>
 
-              {currentAudioUri && (
+              {currentAudioUri && hasElevenLabs && (
                 <Animated.View entering={FadeInDown} style={styles.section}>
-                  <AudioPlayer uri={currentAudioUri} label="Generated Audio" />
+                  <AudioPlayer uri={currentAudioUri} label="Cloned Voice Output" />
                 </Animated.View>
               )}
 
@@ -647,27 +923,43 @@ export default function StudioScreen() {
                             { color: "#000" },
                           ]}
                         >
-                          Generating…
+                          {hasElevenLabs && cloneStatus === "cloning"
+                            ? "Cloning voice…"
+                            : hasElevenLabs
+                            ? "Generating clone…"
+                            : "Generating…"}
                         </Text>
                       </>
                     ) : (
                       <>
-                        <Ionicons name="sparkles" size={20} color="#000" />
+                        <Ionicons
+                          name={hasElevenLabs ? "mic" : "sparkles"}
+                          size={20}
+                          color="#000"
+                        />
                         <Text
                           style={[
                             styles.generateBtnText,
                             { color: "#000" },
                           ]}
                         >
-                          Generate Speech
+                          {hasElevenLabs
+                            ? "Generate with Your Voice"
+                            : "Preview Speech"}
                         </Text>
                       </>
                     )}
                   </Pressable>
                 )}
+
+                {!hasElevenLabs && isWebPlatform && (
+                  <Text style={styles.fallbackNote}>
+                    Using device's built-in voice engine — not your real voice.
+                    Add an ElevenLabs key above for true voice cloning.
+                  </Text>
+                )}
               </View>
 
-              {/* AI badge */}
               <View style={styles.aiBadge}>
                 <Ionicons
                   name="sparkles"
@@ -675,7 +967,9 @@ export default function StudioScreen() {
                   color={Colors.textTertiary}
                 />
                 <Text style={styles.aiBadgeText}>
-                  Powered by Qwen3 via OpenRouter · Text enhancement available
+                  {hasElevenLabs
+                    ? "Real voice cloning via ElevenLabs · AI text enhancement via Qwen3"
+                    : "AI text enhancement via Qwen3 · Add ElevenLabs key for voice cloning"}
                 </Text>
               </View>
             </View>
@@ -695,12 +989,12 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
   },
 
-  /* Web header */
   webHeader: {
+    backgroundColor: Colors.card,
     borderBottomWidth: 1,
     borderBottomColor: Colors.cardBorder,
     paddingVertical: 14,
-    paddingHorizontal: 32,
+    paddingHorizontal: 24,
   },
   webHeaderInner: {
     maxWidth: 960,
@@ -711,59 +1005,257 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   webLogo: {
-    fontSize: 18,
-    fontFamily: "Inter_700Bold",
     color: Colors.text,
+    fontSize: 18,
+    fontWeight: "700",
+    letterSpacing: -0.3,
   },
   webTagline: {
+    color: Colors.textSecondary,
     fontSize: 13,
-    fontFamily: "Inter_400Regular",
-    color: Colors.textTertiary,
   },
 
-  /* Scroll */
   scroll: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
+    paddingTop: 8,
   },
   scrollWide: {
     paddingHorizontal: 32,
-    paddingTop: 24,
-    maxWidth: 960,
+    maxWidth: 1020,
     alignSelf: "center",
     width: "100%",
   },
 
-  /* Mobile header */
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-start",
-    paddingTop: 12,
-    paddingBottom: 24,
+    alignItems: "center",
+    paddingVertical: 16,
   },
   title: {
-    fontSize: 28,
-    fontFamily: "Inter_700Bold",
     color: Colors.text,
+    fontSize: 26,
+    fontWeight: "800",
     letterSpacing: -0.5,
   },
   subtitle: {
-    fontSize: 14,
-    fontFamily: "Inter_400Regular",
     color: Colors.textTertiary,
-    marginTop: 2,
+    fontSize: 13,
+    fontWeight: "500",
+    letterSpacing: 1,
+    textTransform: "uppercase",
   },
   statusDot: {
     width: 10,
     height: 10,
     borderRadius: 5,
-    marginTop: 8,
   },
 
-  /* Layout columns */
+  elSettingsWrapper: {
+    marginVertical: 10,
+  },
+  elSettingsCard: {
+    backgroundColor: Colors.card,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    overflow: "hidden",
+  },
+  elSettingsHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 14,
+  },
+  elSettingsLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    flex: 1,
+  },
+  elStatusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  elSettingsTitle: {
+    color: Colors.text,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  elSettingsSubtitle: {
+    color: Colors.textTertiary,
+    fontSize: 11,
+    marginTop: 1,
+  },
+  elSettingsBody: {
+    paddingHorizontal: 14,
+    paddingBottom: 14,
+    borderTopWidth: 1,
+    borderTopColor: Colors.cardBorder,
+    paddingTop: 12,
+  },
+  elInfoBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    backgroundColor: Colors.accent + "15",
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 12,
+  },
+  elInfoText: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    lineHeight: 17,
+    flex: 1,
+  },
+  elLabel: {
+    color: Colors.textSecondary,
+    fontSize: 11,
+    fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  elInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: Colors.background,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    paddingHorizontal: 12,
+  },
+  elInput: {
+    flex: 1,
+    color: Colors.text,
+    fontSize: 14,
+    paddingVertical: 10,
+    fontFamily: Platform.OS === "web" ? "monospace" : undefined,
+  },
+  elEyeBtn: {
+    padding: 6,
+  },
+  elActions: {
+    marginTop: 10,
+    gap: 8,
+  },
+  elGetKeyLink: {
+    color: Colors.accent,
+    fontSize: 12,
+    textDecorationLine: "underline",
+  },
+  elBtnRow: {
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "flex-end",
+  },
+  elSaveBtn: {
+    paddingHorizontal: 18,
+    paddingVertical: 9,
+    borderRadius: 8,
+  },
+  elSaveBtnText: {
+    color: "#000",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  elRemoveBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.error + "60",
+  },
+  elRemoveBtnText: {
+    color: Colors.error,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  elDisclaimer: {
+    color: Colors.textTertiary,
+    fontSize: 11,
+    marginTop: 10,
+    lineHeight: 15,
+  },
+
+  voiceGuideCard: {
+    backgroundColor: Colors.card,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.accentSecondary + "40",
+    padding: 16,
+    marginBottom: 16,
+  },
+  voiceGuideHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 8,
+  },
+  voiceGuideTitle: {
+    color: Colors.text,
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  voiceGuidePrompt: {
+    color: Colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 19,
+    marginBottom: 10,
+  },
+  voiceGuideSentenceBox: {
+    backgroundColor: Colors.background,
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 10,
+  },
+  voiceGuideSentence: {
+    color: Colors.text,
+    fontSize: 14,
+    lineHeight: 21,
+    fontStyle: "italic",
+  },
+  voiceGuideTip: {
+    color: Colors.textTertiary,
+    fontSize: 12,
+    marginBottom: 14,
+    lineHeight: 17,
+  },
+  voiceGuideActions: {
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "flex-end",
+  },
+  voiceGuideCancelBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  voiceGuideCancelText: {
+    color: Colors.textSecondary,
+    fontSize: 14,
+  },
+  voiceGuideStartBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  voiceGuideStartText: {
+    color: "#000",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+
   twoCol: {
     flexDirection: "row",
-    gap: 32,
+    gap: 24,
     alignItems: "flex-start",
   },
   oneCol: {
@@ -771,119 +1263,40 @@ const styles = StyleSheet.create({
   },
   leftCol: {
     flex: 1,
-    minWidth: 280,
-    maxWidth: 380,
   },
   rightCol: {
-    flex: 1.2,
+    flex: 1,
   },
   fullWidth: {
     width: "100%",
   },
 
-  /* Voice guide */
-  voiceGuideCard: {
-    backgroundColor: Colors.card,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: Colors.accentSecondary + "44",
-    padding: 20,
-    marginBottom: 20,
-    gap: 12,
-  },
-  voiceGuideHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  voiceGuideTitle: {
-    fontSize: 16,
-    fontFamily: "Inter_600SemiBold",
-    color: Colors.text,
-  },
-  voiceGuidePrompt: {
-    fontSize: 14,
-    fontFamily: "Inter_400Regular",
-    color: Colors.textSecondary,
-    lineHeight: 20,
-  },
-  voiceGuideSentenceBox: {
-    backgroundColor: Colors.accentSecondary + "11",
-    borderRadius: 12,
-    padding: 14,
-    borderLeftWidth: 3,
-    borderLeftColor: Colors.accentSecondary,
-  },
-  voiceGuideSentence: {
-    fontSize: 15,
-    fontFamily: "Inter_500Medium",
-    color: Colors.text,
-    lineHeight: 22,
-    fontStyle: "italic",
-  },
-  voiceGuideTip: {
-    fontSize: 12,
-    fontFamily: "Inter_400Regular",
-    color: Colors.textTertiary,
-    lineHeight: 18,
-  },
-  voiceGuideActions: {
-    flexDirection: "row",
-    gap: 10,
-    marginTop: 4,
-  },
-  voiceGuideCancelBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.cardBorder,
-  },
-  voiceGuideCancelText: {
-    fontSize: 14,
-    fontFamily: "Inter_500Medium",
-    color: Colors.textSecondary,
-  },
-  voiceGuideStartBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 12,
-  },
-  voiceGuideStartText: {
-    fontSize: 14,
-    fontFamily: "Inter_600SemiBold",
-    color: "#000",
-  },
-
-  /* Record */
   recordSection: {
-    marginBottom: 20,
+    marginBottom: 16,
   },
   recordCard: {
     backgroundColor: Colors.card,
-    borderRadius: 24,
+    borderRadius: 20,
+    padding: 20,
+    alignItems: "center",
     borderWidth: 1,
     borderColor: Colors.cardBorder,
-    padding: 24,
-    alignItems: "center",
-    gap: 16,
   },
-  waveContainer: { width: "100%" },
+  waveContainer: {
+    width: "100%",
+    marginBottom: 16,
+  },
   recordInfo: {
     alignItems: "center",
-    gap: 8,
+    marginTop: 12,
+    gap: 6,
   },
   liveBadge: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     borderRadius: 20,
   },
   liveDot: {
@@ -893,38 +1306,36 @@ const styles = StyleSheet.create({
   },
   liveText: {
     fontSize: 12,
-    fontFamily: "Inter_600SemiBold",
-  },
-  clearText: {
-    fontSize: 12,
-    color: Colors.textTertiary,
-    fontFamily: "Inter_400Regular",
-    textDecorationLine: "underline",
+    fontWeight: "600",
+    letterSpacing: 0.3,
   },
   recordHint: {
-    fontSize: 13,
     color: Colors.textTertiary,
-    fontFamily: "Inter_400Regular",
+    fontSize: 12,
     textAlign: "center",
   },
+  clearText: {
+    color: Colors.error,
+    fontSize: 12,
+    marginTop: 4,
+  },
 
-  /* Section */
   section: {
-    marginBottom: 20,
-    gap: 10,
+    marginBottom: 16,
+  },
+  sectionLabel: {
+    color: Colors.textTertiary,
+    fontSize: 11,
+    fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+    marginBottom: 10,
   },
   sectionRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-  },
-  sectionLabel: {
-    fontSize: 12,
-    fontFamily: "Inter_600SemiBold",
-    color: Colors.textTertiary,
-    textTransform: "uppercase",
-    letterSpacing: 1,
-    marginBottom: 4,
+    marginBottom: 10,
   },
   textActions: {
     flexDirection: "row",
@@ -933,45 +1344,40 @@ const styles = StyleSheet.create({
   },
   sampleBtn: {
     fontSize: 12,
-    fontFamily: "Inter_500Medium",
+    fontWeight: "600",
   },
   dotDivider: {
-    fontSize: 12,
     color: Colors.textTertiary,
+    fontSize: 12,
   },
-
-  /* Text input */
   textInputWrapper: {
     backgroundColor: Colors.card,
-    borderRadius: 16,
+    borderRadius: 14,
     borderWidth: 1,
     padding: 14,
-    minHeight: 120,
     position: "relative",
   },
   textInput: {
     color: Colors.text,
     fontSize: 15,
-    fontFamily: "Inter_400Regular",
     lineHeight: 22,
-    flex: 1,
+    minHeight: 110,
   },
   textInputWide: {
     minHeight: 160,
   },
   clearInput: {
     position: "absolute",
-    top: 10,
-    right: 10,
+    top: 12,
+    right: 12,
   },
   charCount: {
-    fontSize: 11,
     color: Colors.textTertiary,
-    fontFamily: "Inter_400Regular",
+    fontSize: 11,
     textAlign: "right",
+    marginTop: 6,
   },
 
-  /* Generate */
   generateBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -979,25 +1385,32 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingVertical: 16,
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "transparent",
+    borderWidth: 0,
   },
   generateBtnText: {
     fontSize: 16,
-    fontFamily: "Inter_600SemiBold",
+    fontWeight: "700",
+    letterSpacing: -0.2,
+  },
+  fallbackNote: {
+    color: Colors.textTertiary,
+    fontSize: 11,
+    textAlign: "center",
+    marginTop: 8,
+    lineHeight: 16,
   },
 
-  /* AI badge */
   aiBadge: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
     justifyContent: "center",
-    marginTop: -8,
+    gap: 5,
+    marginTop: 4,
+    marginBottom: 8,
   },
   aiBadgeText: {
-    fontSize: 10,
     color: Colors.textTertiary,
-    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    textAlign: "center",
   },
 });
