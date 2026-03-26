@@ -27,6 +27,7 @@
     },
     "web": {
       "favicon": "./assets/images/icon.png",
+      "icon": "./assets/images/icon.png",
       "name": "Voice Persona AI",
       "shortName": "VoiceAI",
       "description": "Transform any text into speech that mirrors your unique vocal style using AI. Record your voice, choose a persona mode, and generate natural-sounding speech.",
@@ -35,7 +36,12 @@
       "display": "standalone",
       "orientation": "portrait",
       "scope": "/",
-      "startUrl": "/"
+      "startUrl": "/",
+      "splash": {
+        "image": "./assets/images/icon.png",
+        "resizeMode": "contain",
+        "backgroundColor": "#050508"
+      }
     },
     "plugins": [
       [
