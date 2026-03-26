@@ -328,8 +328,8 @@ export default function StudioScreen() {
       Alert.alert("No Text", "Please enter some text to generate speech.");
       return;
     }
-    if (!voiceSample) {
-      Alert.alert("No Voice Sample", "Please record a voice sample first.");
+    if (hasElevenLabs && !voiceSample) {
+      Alert.alert("No Voice Sample", "Please record a voice sample first so your voice can be cloned.");
       return;
     }
 
@@ -380,7 +380,7 @@ export default function StudioScreen() {
 
     if (usedElevenLabs) return;
 
-    const params = getModeParams(currentMode, voiceSample.duration);
+    const params = getModeParams(currentMode, voiceSample?.duration ?? 10);
     const onDone = () => {
       setIsSpeaking(false);
       setIsGenerating(false);
@@ -708,7 +708,7 @@ export default function StudioScreen() {
             </View>
           )}
 
-          {showVoiceGuide && !isRecording && (
+          {showVoiceGuide && !isRecording && hasElevenLabs && (
             <Animated.View entering={FadeInDown} style={styles.voiceGuideCard}>
               <View style={styles.voiceGuideHeader}>
                 <Ionicons name="mic" size={20} color={Colors.accentSecondary} />
@@ -756,16 +756,52 @@ export default function StudioScreen() {
 
           <View style={isWide ? styles.twoCol : styles.oneCol}>
             <View style={isWide ? styles.leftCol : styles.fullWidth}>
-              {isWide && (
-                <Text style={styles.sectionLabel}>Step 1 · Your Voice</Text>
+              {hasElevenLabs ? (
+                <>
+                  {isWide && (
+                    <Text style={styles.sectionLabel}>Step 1 · Your Voice</Text>
+                  )}
+                  <View style={styles.recordSection}>{recordCard}</View>
+                </>
+              ) : (
+                <View style={styles.recordSection}>
+                  {isWide && (
+                    <Text style={styles.sectionLabel}>Step 1 · Voice</Text>
+                  )}
+                  <View style={styles.recordNotNeededCard}>
+                    <Ionicons
+                      name="mic-off-outline"
+                      size={32}
+                      color={Colors.textTertiary}
+                    />
+                    <Text style={styles.recordNotNeededTitle}>
+                      Recording Not Needed
+                    </Text>
+                    <Text style={styles.recordNotNeededText}>
+                      Voice recording is only required for real voice cloning
+                      via ElevenLabs. In system voice mode, just enter your text
+                      below and tap Generate.
+                    </Text>
+                    <Pressable
+                      onPress={() => setShowSettings(true)}
+                      style={styles.recordNotNeededLink}
+                    >
+                      <Ionicons name="key-outline" size={13} color={Colors.accent} />
+                      <Text style={styles.recordNotNeededLinkText}>
+                        Add ElevenLabs key to enable voice cloning
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
               )}
-              <View style={styles.recordSection}>{recordCard}</View>
               <View style={styles.section}>
                 {!isWide && (
                   <Text style={styles.sectionLabel}>Voice Mode</Text>
                 )}
                 {isWide && (
-                  <Text style={styles.sectionLabel}>Step 2 · Persona Mode</Text>
+                  <Text style={styles.sectionLabel}>
+                    {hasElevenLabs ? "Step 2 · Persona Mode" : "Step 2 · Persona Mode"}
+                  </Text>
                 )}
                 <ModeSelector
                   currentMode={currentMode}
@@ -876,14 +912,18 @@ export default function StudioScreen() {
                   <Pressable
                     onPress={generateSpeech}
                     disabled={
-                      isGenerating || !voiceSample || !currentText.trim()
+                      isGenerating ||
+                      (hasElevenLabs && !voiceSample) ||
+                      !currentText.trim()
                     }
                     style={[
                       styles.generateBtn,
                       {
                         backgroundColor: modeColor,
                         opacity:
-                          isGenerating || !voiceSample || !currentText.trim()
+                          isGenerating ||
+                          (hasElevenLabs && !voiceSample) ||
+                          !currentText.trim()
                             ? 0.4
                             : 1,
                       },
@@ -1392,5 +1432,42 @@ const styles = StyleSheet.create({
     color: Colors.textTertiary,
     fontSize: 11,
     textAlign: "center",
+  },
+  recordNotNeededCard: {
+    backgroundColor: Colors.card,
+    borderRadius: 20,
+    padding: 24,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    gap: 10,
+  },
+  recordNotNeededTitle: {
+    color: Colors.textSecondary,
+    fontSize: 15,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  recordNotNeededText: {
+    color: Colors.textTertiary,
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: "center",
+  },
+  recordNotNeededLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginTop: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.accent + "40",
+  },
+  recordNotNeededLinkText: {
+    color: Colors.accent,
+    fontSize: 12,
+    fontWeight: "600",
   },
 });
