@@ -74,11 +74,37 @@ function unlockAudioContext() {
   } catch {}
 }
 
+const FEMALE_VOICE_NAMES = [
+  "samantha", "victoria", "karen", "alice", "fiona", "moira", "tessa",
+  "ava", "allison", "susan", "zoe", "kate", "veena", "kanya", "luciana",
+  "milena", "yelena", "anna", "sara", "joana", "lekha", "sin-ji", "mei-jia",
+  "amelie", "paulina", "carmit", "yuna", "kyoko", "siri female", "google uk english female",
+];
+const MALE_VOICE_NAMES = [
+  "daniel", "alex", "tom", "fred", "xander", "rishi", "jorge", "thomas",
+  "reed", "gordon", "junior", "diego", "eddy", "neel", "aaron", "arthur",
+  "albert", "google uk english male", "google us english",
+];
+
+function voiceMatchesGender(voice: SpeechSynthesisVoice, gender: "female" | "male"): boolean {
+  const nameLower = voice.name.toLowerCase();
+  if (gender === "female") {
+    if (nameLower.includes("female")) return true;
+    if (nameLower.includes("male") && !nameLower.includes("female")) return false;
+    return FEMALE_VOICE_NAMES.some((n) => nameLower.includes(n));
+  } else {
+    if (nameLower.includes("male") && !nameLower.includes("female")) return true;
+    if (nameLower.includes("female")) return false;
+    return MALE_VOICE_NAMES.some((n) => nameLower.includes(n));
+  }
+}
+
 function speakOnWeb(
   text: string,
   params: { rate: number; pitch: number; volume: number },
   onDone: () => void,
-  onError: () => void
+  onError: () => void,
+  gender: "female" | "male" = "female"
 ): boolean {
   if (
     Platform.OS !== "web" ||
@@ -93,9 +119,12 @@ function speakOnWeb(
   utterance.pitch = params.pitch;
   utterance.volume = 1;
   const voices = window.speechSynthesis.getVoices();
+  const englishVoices = voices.filter((v) => v.lang.startsWith("en"));
   const preferred =
-    voices.find((v) => v.localService && v.lang.startsWith("en")) ||
-    voices.find((v) => v.lang.startsWith("en")) ||
+    englishVoices.find((v) => v.localService && voiceMatchesGender(v, gender)) ||
+    englishVoices.find((v) => voiceMatchesGender(v, gender)) ||
+    englishVoices.find((v) => v.localService) ||
+    englishVoices[0] ||
     voices[0];
   if (preferred) utterance.voice = preferred;
   utterance.onend = onDone;
@@ -422,7 +451,7 @@ export default function StudioScreen() {
 
     try {
       setIsSpeaking(true);
-      const handledByWeb = speakOnWeb(currentText, params, onDone, onError);
+      const handledByWeb = speakOnWeb(currentText, params, onDone, onError, gender);
       if (!handledByWeb) {
         await Speech.speak(currentText, {
           rate: params.rate,
@@ -633,28 +662,24 @@ export default function StudioScreen() {
             </View>
           )}
 
-          {(!keyCheckResult || (keyCheckResult.valid && !keyCheckResult.canCloneVoice)) && (
-            <>
-              <Text style={[styles.elLabel, { marginTop: 12 }]}>Preset Voice Gender</Text>
-              <Text style={[styles.elInfoText, { marginBottom: 8, color: Colors.textSecondary }]}>
-                Used when cloning is unavailable — ElevenLabs high-quality voice
-              </Text>
-              <View style={styles.elBtnRow}>
-                <Pressable
-                  onPress={() => setGender("female")}
-                  style={[styles.elSaveBtn, { flex: 1, backgroundColor: gender === "female" ? modeColor : Colors.cardBorder }]}
-                >
-                  <Text style={styles.elSaveBtnText}>Female</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => setGender("male")}
-                  style={[styles.elSaveBtn, { flex: 1, backgroundColor: gender === "male" ? modeColor : Colors.cardBorder }]}
-                >
-                  <Text style={styles.elSaveBtnText}>Male</Text>
-                </Pressable>
-              </View>
-            </>
-          )}
+          <Text style={[styles.elLabel, { marginTop: 14 }]}>Voice Gender</Text>
+          <Text style={[styles.elInfoText, { marginBottom: 8, color: Colors.textSecondary }]}>
+            Applied to both system TTS and ElevenLabs preset voices
+          </Text>
+          <View style={styles.elBtnRow}>
+            <Pressable
+              onPress={() => setGender("female")}
+              style={[styles.elSaveBtn, { flex: 1, backgroundColor: gender === "female" ? modeColor : Colors.cardBorder }]}
+            >
+              <Text style={styles.elSaveBtnText}>Female</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setGender("male")}
+              style={[styles.elSaveBtn, { flex: 1, backgroundColor: gender === "male" ? modeColor : Colors.cardBorder }]}
+            >
+              <Text style={styles.elSaveBtnText}>Male</Text>
+            </Pressable>
+          </View>
 
           <View style={[styles.elActions, { marginTop: 12 }]}>
             <Pressable
@@ -994,11 +1019,6 @@ export default function StudioScreen() {
                       ? `ElevenLabs Preset Voice (${gender === "male" ? "Adam" : "Rachel"})`
                       : "Cloned Voice Output"}
                   />
-                  {lastUsedCloning === false && (
-                    <Text style={[styles.elDisclaimer, { marginTop: 6, color: Colors.warning }]}>
-                      Preset voice used — voice cloning permission not enabled on your key
-                    </Text>
-                  )}
                 </Animated.View>
               )}
 
@@ -1094,6 +1114,25 @@ export default function StudioScreen() {
                     Using device's built-in voice engine — not your real voice.
                     Add an ElevenLabs key above for true voice cloning.
                   </Text>
+                )}
+
+                {hasElevenLabs && lastUsedCloning !== null && (
+                  <View style={[
+                    styles.cloningBadge,
+                    { backgroundColor: lastUsedCloning ? Colors.success + "22" : Colors.warning + "22",
+                      borderColor: lastUsedCloning ? Colors.success : Colors.warning }
+                  ]}>
+                    <Ionicons
+                      name={lastUsedCloning ? "checkmark-circle" : "warning-outline"}
+                      size={15}
+                      color={lastUsedCloning ? Colors.success : Colors.warning}
+                    />
+                    <Text style={[styles.cloningBadgeText, { color: lastUsedCloning ? Colors.success : Colors.warning }]}>
+                      {lastUsedCloning
+                        ? "Your voice was cloned successfully"
+                        : `Preset ${gender === "male" ? "male" : "female"} voice used — cloning not enabled on your key`}
+                    </Text>
+                  </View>
                 )}
               </View>
 
@@ -1534,6 +1573,23 @@ const styles = StyleSheet.create({
     fontSize: 11,
     textAlign: "center",
     marginTop: 8,
+    lineHeight: 16,
+  },
+
+  cloningBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignSelf: "center",
+  },
+  cloningBadgeText: {
+    fontSize: 12,
+    fontWeight: "600",
     lineHeight: 16,
   },
 
