@@ -56,17 +56,6 @@ function getModeParams(mode: VoiceMode, sampleDuration: number) {
   }
 }
 
-function getElevenLabsVoiceSettings(mode: VoiceMode) {
-  switch (mode) {
-    case "news":
-      return { stability: 0.85, similarity_boost: 0.75, style: 0.1, use_speaker_boost: true };
-    case "story":
-      return { stability: 0.45, similarity_boost: 0.80, style: 0.75, use_speaker_boost: true };
-    default:
-      return { stability: 0.65, similarity_boost: 0.85, style: 0.3, use_speaker_boost: true };
-  }
-}
-
 function unlockAudioContext() {
   if (Platform.OS !== "web") return;
   try {
@@ -115,6 +104,13 @@ function speakOnWeb(
   return true;
 }
 
+function getApiBase(): string {
+  if (Platform.OS === "web" && typeof window !== "undefined") {
+    return `${window.location.origin}/api`;
+  }
+  return "http://localhost:8080/api";
+}
+
 async function generateWithElevenLabs(
   voiceSampleUri: string,
   text: string,
@@ -122,63 +118,37 @@ async function generateWithElevenLabs(
   apiKey: string,
   cachedVoiceId: string | null
 ): Promise<{ audioUrl: string; voiceId: string }> {
-  let voiceId = cachedVoiceId;
+  const apiBase = getApiBase();
+  const formData = new FormData();
+  formData.append("text", text);
+  formData.append("mode", mode);
 
-  if (!voiceId) {
+  if (cachedVoiceId) {
+    formData.append("voiceId", cachedVoiceId);
+  } else {
     const audioResponse = await fetch(voiceSampleUri);
+    if (!audioResponse.ok) throw new Error("Could not read voice sample. Please re-record.");
     const audioBlob = await audioResponse.blob();
-
-    const formData = new FormData();
-    formData.append("name", `VoicePersona_${Date.now()}`);
-    formData.append("files", audioBlob, "voice_sample");
-    formData.append("description", "Cloned for Voice Persona AI");
-
-    const cloneRes = await fetch("https://api.elevenlabs.io/v1/voices/add", {
-      method: "POST",
-      headers: { "xi-api-key": apiKey },
-      body: formData,
-    });
-
-    if (!cloneRes.ok) {
-      let msg = "Voice cloning failed. Check your ElevenLabs key and try again.";
-      try {
-        const err = await cloneRes.json() as { detail?: { message?: string } };
-        if (err?.detail?.message) msg = err.detail.message;
-      } catch {}
-      throw new Error(msg);
-    }
-
-    const cloneData = await cloneRes.json() as { voice_id: string };
-    voiceId = cloneData.voice_id;
+    formData.append("audio", audioBlob, "voice_sample");
   }
 
-  const voiceSettings = getElevenLabsVoiceSettings(mode);
-  const ttsRes = await fetch(
-    `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
-    {
-      method: "POST",
-      headers: {
-        "xi-api-key": apiKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        text,
-        model_id: "eleven_multilingual_v2",
-        voice_settings: voiceSettings,
-      }),
-    }
-  );
+  const res = await fetch(`${apiBase}/elevenlabs/generate`, {
+    method: "POST",
+    headers: { "x-elevenlabs-key": apiKey },
+    body: formData,
+  });
 
-  if (!ttsRes.ok) {
-    let msg = "Speech generation failed. Please try again.";
+  if (!res.ok) {
+    let msg = "Voice generation failed. Check your ElevenLabs key and try again.";
     try {
-      const err = await ttsRes.json() as { detail?: { message?: string } };
-      if (err?.detail?.message) msg = err.detail.message;
+      const err = await res.json() as { error?: string };
+      if (err?.error) msg = err.error;
     } catch {}
     throw new Error(msg);
   }
 
-  const audioBuffer = await ttsRes.arrayBuffer();
+  const voiceId = res.headers.get("x-voice-id") || cachedVoiceId || "";
+  const audioBuffer = await res.arrayBuffer();
   const blob = new Blob([audioBuffer], { type: "audio/mpeg" });
   const audioUrl = URL.createObjectURL(blob);
 
@@ -187,9 +157,10 @@ async function generateWithElevenLabs(
 
 async function deleteElevenLabsVoice(voiceId: string, apiKey: string) {
   try {
-    await fetch(`https://api.elevenlabs.io/v1/voices/${voiceId}`, {
+    const apiBase = getApiBase();
+    await fetch(`${apiBase}/elevenlabs/voices/${voiceId}`, {
       method: "DELETE",
-      headers: { "xi-api-key": apiKey },
+      headers: { "x-elevenlabs-key": apiKey },
     });
   } catch {}
 }
