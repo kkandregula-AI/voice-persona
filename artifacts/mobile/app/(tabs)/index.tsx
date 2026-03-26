@@ -112,20 +112,22 @@ function getApiBase(): string {
 }
 
 async function generateWithElevenLabs(
-  voiceSampleUri: string,
+  voiceSampleUri: string | null,
   text: string,
   mode: VoiceMode,
   apiKey: string,
-  cachedVoiceId: string | null
-): Promise<{ audioUrl: string; voiceId: string }> {
+  cachedVoiceId: string | null,
+  gender: "male" | "female"
+): Promise<{ audioUrl: string; voiceId: string; usedCloning: boolean }> {
   const apiBase = getApiBase();
   const formData = new FormData();
   formData.append("text", text);
   formData.append("mode", mode);
+  formData.append("gender", gender);
 
   if (cachedVoiceId) {
     formData.append("voiceId", cachedVoiceId);
-  } else {
+  } else if (voiceSampleUri) {
     const audioResponse = await fetch(voiceSampleUri);
     if (!audioResponse.ok) throw new Error("Could not read voice sample. Please re-record.");
     const audioBlob = await audioResponse.blob();
@@ -148,11 +150,30 @@ async function generateWithElevenLabs(
   }
 
   const voiceId = res.headers.get("x-voice-id") || cachedVoiceId || "";
+  const usedCloning = res.headers.get("x-used-cloning") === "true";
   const audioBuffer = await res.arrayBuffer();
   const blob = new Blob([audioBuffer], { type: "audio/mpeg" });
   const audioUrl = URL.createObjectURL(blob);
 
-  return { audioUrl, voiceId };
+  return { audioUrl, voiceId, usedCloning };
+}
+
+async function checkElevenLabsKey(apiKey: string): Promise<{
+  valid: boolean;
+  plan?: string;
+  canCloneVoice?: boolean;
+  characterLimit?: number;
+  charactersUsed?: number;
+  error?: string;
+}> {
+  const apiBase = getApiBase();
+  const res = await fetch(`${apiBase}/elevenlabs/check-key`, {
+    headers: { "x-elevenlabs-key": apiKey },
+  });
+  return res.json() as Promise<{
+    valid: boolean; plan?: string; canCloneVoice?: boolean;
+    characterLimit?: number; charactersUsed?: number; error?: string;
+  }>;
 }
 
 async function deleteElevenLabsVoice(voiceId: string, apiKey: string) {
@@ -218,6 +239,13 @@ export default function StudioScreen() {
   const [keyInput, setKeyInput] = useState(elevenLabsKey);
   const [showKey, setShowKey] = useState(false);
   const [cloneStatus, setCloneStatus] = useState<"idle" | "cloning" | "done" | "error">("idle");
+  const [gender, setGender] = useState<"female" | "male">("female");
+  const [isCheckingKey, setIsCheckingKey] = useState(false);
+  const [lastUsedCloning, setLastUsedCloning] = useState<boolean | null>(null);
+  const [keyCheckResult, setKeyCheckResult] = useState<{
+    valid: boolean; plan?: string; canCloneVoice?: boolean;
+    characterLimit?: number; charactersUsed?: number; error?: string;
+  } | null>(null);
 
   const recordingRef = useRef<Audio.Recording | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -342,14 +370,16 @@ export default function StudioScreen() {
     if (elevenLabsKey && Platform.OS === "web") {
       try {
         setCloneStatus(clonedVoiceId ? "done" : "cloning");
-        const { audioUrl, voiceId } = await generateWithElevenLabs(
-          voiceSample.uri,
+        const { audioUrl, voiceId, usedCloning } = await generateWithElevenLabs(
+          voiceSample?.uri ?? null,
           currentText,
           currentMode,
           elevenLabsKey,
-          clonedVoiceId
+          clonedVoiceId,
+          gender
         );
-        setClonedVoiceId(voiceId);
+        if (usedCloning && voiceId) setClonedVoiceId(voiceId);
+        setLastUsedCloning(usedCloning);
         setCloneStatus("done");
         setCurrentAudioUri(audioUrl);
 
@@ -359,7 +389,7 @@ export default function StudioScreen() {
           mode: currentMode,
           uri: audioUrl,
           createdAt: Date.now(),
-          cloned: true,
+          cloned: usedCloning,
         };
         addToHistory(entry);
         setIsGenerating(false);
@@ -506,24 +536,14 @@ export default function StudioScreen() {
 
       {showSettings && (
         <Animated.View entering={FadeInDown} style={styles.elSettingsBody}>
-          <View style={styles.elInfoBox}>
-            <Ionicons name="information-circle" size={16} color={Colors.accent} />
-            <Text style={styles.elInfoText}>
-              <Text style={{ fontWeight: "700", color: Colors.text }}>Voice cloning requires a paid ElevenLabs plan</Text>
-              {" "}(Starter $5/mo+). The free tier only allows text-to-speech with
-              preset voices, not cloning your actual voice.{"\n\n"}
-              Without a key or on the free plan, the app uses your device's
-              built-in voice engine as a fallback.
-            </Text>
-          </View>
 
           <Text style={styles.elLabel}>ElevenLabs API Key</Text>
           <View style={styles.elInputRow}>
             <TextInput
               style={styles.elInput}
               value={keyInput}
-              onChangeText={setKeyInput}
-              placeholder="sk-..."
+              onChangeText={(v) => { setKeyInput(v); setKeyCheckResult(null); }}
+              placeholder="sk_..."
               placeholderTextColor={Colors.textTertiary}
               secureTextEntry={!showKey}
               autoCapitalize="none"
@@ -541,42 +561,129 @@ export default function StudioScreen() {
             </Pressable>
           </View>
 
-          <View style={styles.elActions}>
+          <View style={styles.elBtnRow}>
+            <Pressable
+              onPress={async () => {
+                const k = keyInput.trim();
+                if (!k) return;
+                setIsCheckingKey(true);
+                setKeyCheckResult(null);
+                try {
+                  const result = await checkElevenLabsKey(k);
+                  setKeyCheckResult(result);
+                } catch {
+                  setKeyCheckResult({ valid: false, error: "Could not reach server" });
+                } finally {
+                  setIsCheckingKey(false);
+                }
+              }}
+              style={[styles.elSaveBtn, { backgroundColor: Colors.cardBorder, flex: 1 }]}
+              disabled={isCheckingKey || !keyInput.trim()}
+            >
+              <Text style={styles.elSaveBtnText}>
+                {isCheckingKey ? "Testing…" : "Test Key"}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={saveKey}
+              style={[styles.elSaveBtn, { backgroundColor: modeColor, flex: 1 }]}
+            >
+              <Text style={styles.elSaveBtnText}>Save Key</Text>
+            </Pressable>
+          </View>
+
+          {keyCheckResult && (
+            <View style={[
+              styles.elInfoBox,
+              { borderColor: keyCheckResult.valid ? (keyCheckResult.canCloneVoice ? Colors.success : Colors.warning) : Colors.error, marginTop: 8 }
+            ]}>
+              {keyCheckResult.valid ? (
+                <>
+                  <Ionicons
+                    name={keyCheckResult.canCloneVoice ? "checkmark-circle" : "warning"}
+                    size={16}
+                    color={keyCheckResult.canCloneVoice ? Colors.success : Colors.warning}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.elInfoText, { color: keyCheckResult.canCloneVoice ? Colors.success : Colors.warning, fontWeight: "700" }]}>
+                      {keyCheckResult.canCloneVoice
+                        ? `Voice cloning enabled — ${keyCheckResult.plan ?? "paid"} plan`
+                        : `Key valid, but cloning is NOT enabled`}
+                    </Text>
+                    {!keyCheckResult.canCloneVoice && (
+                      <Text style={[styles.elInfoText, { marginTop: 6 }]}>
+                        {"To fix this:\n1. Go to elevenlabs.io → Settings → API Keys\n2. Click \"Create API Key\"\n3. Enable the \"Use instant voice cloning\" permission\n4. Copy the new key and paste it above\n\nNote: Requires Starter plan ($5/mo+).\n\nUntil then, the app will use a high-quality ElevenLabs preset voice based on your gender selection below — much better than browser TTS."}
+                      </Text>
+                    )}
+                    {keyCheckResult.characterLimit ? (
+                      <Text style={[styles.elInfoText, { marginTop: 4, color: Colors.textSecondary }]}>
+                        {`${(keyCheckResult.characterLimit - (keyCheckResult.charactersUsed ?? 0)).toLocaleString()} characters remaining this month`}
+                      </Text>
+                    ) : null}
+                  </View>
+                </>
+              ) : (
+                <>
+                  <Ionicons name="close-circle" size={16} color={Colors.error} />
+                  <Text style={[styles.elInfoText, { color: Colors.error }]}>
+                    {keyCheckResult.error ?? "Invalid API key — double check and try again"}
+                  </Text>
+                </>
+              )}
+            </View>
+          )}
+
+          {(!keyCheckResult || (keyCheckResult.valid && !keyCheckResult.canCloneVoice)) && (
+            <>
+              <Text style={[styles.elLabel, { marginTop: 12 }]}>Preset Voice Gender</Text>
+              <Text style={[styles.elInfoText, { marginBottom: 8, color: Colors.textSecondary }]}>
+                Used when cloning is unavailable — ElevenLabs high-quality voice
+              </Text>
+              <View style={styles.elBtnRow}>
+                <Pressable
+                  onPress={() => setGender("female")}
+                  style={[styles.elSaveBtn, { flex: 1, backgroundColor: gender === "female" ? modeColor : Colors.cardBorder }]}
+                >
+                  <Text style={styles.elSaveBtnText}>Female</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setGender("male")}
+                  style={[styles.elSaveBtn, { flex: 1, backgroundColor: gender === "male" ? modeColor : Colors.cardBorder }]}
+                >
+                  <Text style={styles.elSaveBtnText}>Male</Text>
+                </Pressable>
+              </View>
+            </>
+          )}
+
+          <View style={[styles.elActions, { marginTop: 12 }]}>
             <Pressable
               onPress={() =>
                 Linking.openURL("https://elevenlabs.io/app/settings/api-keys")
               }
             >
               <Text style={styles.elGetKeyLink}>
-                Get a free key at elevenlabs.io →
+                Create a new key at elevenlabs.io →
               </Text>
             </Pressable>
-            <View style={styles.elBtnRow}>
-              {elevenLabsKey ? (
-                <Pressable
-                  onPress={() => {
-                    setKeyInput("");
-                    setElevenLabsKey("");
-                    setClonedVoiceId(null);
-                    setShowSettings(false);
-                  }}
-                  style={styles.elRemoveBtn}
-                >
-                  <Text style={styles.elRemoveBtnText}>Remove Key</Text>
-                </Pressable>
-              ) : null}
+            {elevenLabsKey ? (
               <Pressable
-                onPress={saveKey}
-                style={[styles.elSaveBtn, { backgroundColor: modeColor }]}
+                onPress={() => {
+                  setKeyInput("");
+                  setElevenLabsKey("");
+                  setClonedVoiceId(null);
+                  setKeyCheckResult(null);
+                  setShowSettings(false);
+                }}
+                style={styles.elRemoveBtn}
               >
-                <Text style={styles.elSaveBtnText}>Save Key</Text>
+                <Text style={styles.elRemoveBtnText}>Remove Key</Text>
               </Pressable>
-            </View>
+            ) : null}
           </View>
 
           <Text style={styles.elDisclaimer}>
-            Your key is stored locally on this device only and never sent to
-            our servers. Free tier gives 10,000 characters/month.
+            Your key is stored locally on this device and never sent to our servers.
           </Text>
         </Animated.View>
       )}
@@ -881,7 +988,17 @@ export default function StudioScreen() {
 
               {currentAudioUri && hasElevenLabs && (
                 <Animated.View entering={FadeInDown} style={styles.section}>
-                  <AudioPlayer uri={currentAudioUri} label="Cloned Voice Output" />
+                  <AudioPlayer
+                    uri={currentAudioUri}
+                    label={lastUsedCloning === false
+                      ? `ElevenLabs Preset Voice (${gender === "male" ? "Adam" : "Rachel"})`
+                      : "Cloned Voice Output"}
+                  />
+                  {lastUsedCloning === false && (
+                    <Text style={[styles.elDisclaimer, { marginTop: 6, color: Colors.warning }]}>
+                      Preset voice used — voice cloning permission not enabled on your key
+                    </Text>
+                  )}
                 </Animated.View>
               )}
 
