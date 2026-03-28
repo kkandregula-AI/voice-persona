@@ -9,6 +9,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -299,6 +300,9 @@ export default function TravelTalkScreen() {
   const [showTheirPicker, setShowTheirPicker] = useState(false);
   const [showPhrases, setShowPhrases] = useState(false);
   const [error, setError] = useState("");
+  const [typeInput, setTypeInput] = useState("");
+  const [typeTranslation, setTypeTranslation] = useState("");
+  const [typeLoading, setTypeLoading] = useState(false);
 
   const stopRecognitionRef = useRef<(() => void) | null>(null);
 
@@ -418,6 +422,32 @@ export default function TravelTalkScreen() {
         { text: "Cancel", style: "cancel" },
         { text: "Clear", style: "destructive", onPress: () => setConversation([]) },
       ]);
+    }
+  };
+
+  const handleTypeTranslate = async () => {
+    const text = typeInput.trim();
+    if (!text || typeLoading) return;
+    setTypeLoading(true);
+    setTypeTranslation("");
+    try {
+      const result = await translateText(text, sourceLang.code, targetLang.code);
+      setTypeTranslation(result);
+      speakText(result, targetLang.code);
+      const entry: ConvEntry = {
+        id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+        speaker: mode === "speak" ? "you" : "them",
+        original: text,
+        translated: result,
+        originalLang: sourceLang.label,
+        translatedLang: targetLang.label,
+        timestamp: Date.now(),
+      };
+      setConversation((prev) => [entry, ...prev].slice(0, 30));
+    } catch (err) {
+      setTypeTranslation("⚠ " + (err instanceof Error ? err.message : "Translation failed"));
+    } finally {
+      setTypeLoading(false);
     }
   };
 
@@ -556,6 +586,44 @@ export default function TravelTalkScreen() {
               <Feather name="loader" size={14} color={Colors.accentSecondary} />
               <Text style={styles.processingText}>Translating…</Text>
             </View>
+          )}
+        </View>
+
+        {/* Type to Translate */}
+        <View style={styles.typeSection}>
+          <View style={styles.typeSectionHeader}>
+            <Feather name="edit-3" size={13} color={ACCENT_TRAVEL} />
+            <Text style={styles.typeSectionLabel}>Type to Translate</Text>
+          </View>
+          <View style={styles.typeInputRow}>
+            <TextInput
+              style={styles.typeInput}
+              placeholder={`Type in ${sourceLang.label}…`}
+              placeholderTextColor={Colors.textTertiary}
+              value={typeInput}
+              onChangeText={(t) => { setTypeInput(t); setTypeTranslation(""); }}
+              onSubmitEditing={handleTypeTranslate}
+              returnKeyType="send"
+              multiline={false}
+              editable={!typeLoading}
+            />
+            <Pressable
+              style={[styles.typeBtn, (!typeInput.trim() || typeLoading) && { opacity: 0.4 }]}
+              onPress={handleTypeTranslate}
+              disabled={!typeInput.trim() || typeLoading}
+            >
+              <Feather name={typeLoading ? "loader" : "send"} size={16} color="#fff" />
+            </Pressable>
+          </View>
+          {!!typeTranslation && (
+            <Animated.View entering={FadeInDown} style={styles.typeResult}>
+              <Text style={styles.typeResultLang}>{targetLang.flag} {targetLang.label}</Text>
+              <Text style={styles.typeResultText}>{typeTranslation}</Text>
+              <Pressable onPress={() => speakText(typeTranslation, targetLang.code)} style={styles.typeSpeakBtn}>
+                <Feather name="volume-2" size={14} color={ACCENT_TRAVEL} />
+                <Text style={styles.typeSpeakBtnText}>Speak Again</Text>
+              </Pressable>
+            </Animated.View>
           )}
         </View>
 
@@ -1000,5 +1068,80 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: Colors.text,
     fontWeight: "500",
+  },
+
+  typeSection: {
+    backgroundColor: Colors.card,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 12,
+  },
+  typeSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 10,
+  },
+  typeSectionLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: ACCENT_TRAVEL,
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  typeInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  typeInput: {
+    flex: 1,
+    backgroundColor: Colors.background,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: Colors.text,
+    borderWidth: 1,
+    borderColor: Colors.border ?? "#1E1E2E",
+  },
+  typeBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 10,
+    backgroundColor: ACCENT_TRAVEL,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  typeResult: {
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: ACCENT_TRAVEL_DIM,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: ACCENT_TRAVEL_BORDER,
+  },
+  typeResultLang: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: ACCENT_TRAVEL,
+    marginBottom: 4,
+  },
+  typeResultText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: Colors.text,
+    lineHeight: 22,
+  },
+  typeSpeakBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginTop: 8,
+  },
+  typeSpeakBtnText: {
+    fontSize: 12,
+    color: ACCENT_TRAVEL,
+    fontWeight: "600",
   },
 });
