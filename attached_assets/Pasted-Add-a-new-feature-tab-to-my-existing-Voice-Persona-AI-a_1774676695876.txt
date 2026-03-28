@@ -1,0 +1,151 @@
+Add a new feature tab to my existing Voice Persona AI app called “Travel Talk” (Translate), without changing or breaking any of the current tabs, features, or logic.
+
+IMPORTANT:
+- Do NOT modify existing features: Voice Studio, Creator Mode, History, or Home
+- This must be implemented as a completely separate module
+- Maintain the same premium dark UI style and design consistency
+
+-----------------------------------
+GOAL
+-----------------------------------
+Enable real-time, two-way communication between people who speak different languages.
+
+The app should:
+1. Let user speak in their own language
+2. Convert speech to text
+3. Translate it into a selected target language
+4. Speak the translated text aloud using system/device voice
+5. Listen to the other person’s reply
+6. Translate that reply back into the user’s language
+
+-----------------------------------
+NAVIGATION
+-----------------------------------
+Add a new bottom tab:
+- Name: Travel Talk (or Translate)
+
+Updated navigation:
+- Home
+- Studio
+- Create
+- Travel Talk
+- History
+
+-----------------------------------
+UI STRUCTURE
+-----------------------------------
+
+Screen Title:
+Travel Talk
+
+Subtitle:
+“Speak naturally. Let AI bridge the language.”
+
+-----------------------------------
+LANGUAGE SELECTORS
+-----------------------------------
+- My Language (dropdown)
+- Their Language (dropdown)
+- Add “Swap” button to switch languages
+
+-----------------------------------
+MODE SELECTION
+-----------------------------------
+Add toggle or tabs:
+- Speak Out
+- Listen Back
+
+-----------------------------------
+SPEAK OUT FLOW
+-----------------------------------
+Purpose: User speaks → app translates → app speaks
+
+UI:
+- Large microphone button
+- Status text: “Listening…”
+- After recording, display:
+  - Original Text
+  - Translated Text
+- Button: “Speak Translation”
+
+Behavior:
+- Use speech-to-text to capture user voice
+- Translate text into target language
+- Use system/device TTS (NOT cloned voice) to speak output
+
+-----------------------------------
+LISTEN BACK FLOW
+-----------------------------------
+Purpose: Other person speaks → app translates back
+
+UI:
+- Large microphone button
+- Status text: “Listening to reply…”
+- Display:
+  - Heard Text
+  - Translation (in user’s language)
+- Button: “Read Aloud”
+
+Behavior:
+- Capture incoming speech
+- Convert to text
+- Translate into user’s language
+- Optionally speak using system voice
+
+-----------------------------------
+CONVERSATION HISTORY
+-----------------------------------
+Below main area, show conversation cards:
+
+Each card should include:
+- Speaker (You / Other)
+- Original text
+- Translated text
+- Timestamp
+
+Actions:
+- Replay audio
+- Copy text
+- Save phrase
+
+-----------------------------------
+TECHNICAL REQUIREMENTS
+-----------------------------------
+- Use browser/device Speech-to-Text (Web Speech API or equivalent)
+- Use translation API or LLM for language translation
+- Use system/device Text-to-Speech (speechSynthesis or equivalent)
+- DO NOT use ElevenLabs or cloned voice for this feature
+- Keep this module independent from existing voice cloning logic
+
+-----------------------------------
+UX REQUIREMENTS
+-----------------------------------
+- Mobile-first design
+- Large readable text for real-world conversations
+- Fast response (low latency)
+- Push-to-talk interaction (no continuous streaming required)
+- Clear feedback states: listening, processing, speaking
+
+-----------------------------------
+OPTIONAL ENHANCEMENTS (if easy)
+-----------------------------------
+- Quick travel phrases:
+  - “Where is the station?”
+  - “How much is this?”
+  - “I need help”
+  - “Thank you”
+- Auto language detection for incoming speech
+- Save favorite phrases locally
+
+-----------------------------------
+CONSTRAINTS
+-----------------------------------
+- Do NOT break existing UI or features
+- Do NOT reuse Voice Studio layout
+- This must feel like a separate feature with its own flow
+- Keep code modular and clean
+
+-----------------------------------
+FINAL GOAL
+-----------------------------------
+This feature should feel like a practical, real-world travel communication tool that enhances the app and impresses hackathon judges.

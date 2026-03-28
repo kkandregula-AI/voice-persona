@@ -35,9 +35,9 @@ export default function TabLayout() {
           paddingTop: 8,
         },
         tabBarLabelStyle: {
-          fontSize: 10,
+          fontSize: 9,
           fontWeight: "600",
-          letterSpacing: 0.3,
+          letterSpacing: 0.2,
           marginTop: 2,
         },
         tabBarBackground: () =>
@@ -67,6 +67,13 @@ export default function TabLayout() {
         options={{
           title: "Create",
           tabBarIcon: ({ color }) => <Feather name="zap" size={20} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="travel"
+        options={{
+          title: "Travel Talk",
+          tabBarIcon: ({ color }) => <Feather name="globe" size={20} color={color} />,
         }}
       />
       <Tabs.Screen

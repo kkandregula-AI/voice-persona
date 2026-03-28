@@ -161,4 +161,26 @@ Rules:
   }
 });
 
+router.post("/ai/translate", async (req, res) => {
+  try {
+    const { text, fromLang, toLang } = req.body as { text?: string; fromLang?: string; toLang?: string };
+
+    if (!text || typeof text !== "string" || text.trim().length === 0) {
+      return res.status(400).json({ error: "text is required" });
+    }
+    if (!fromLang || !toLang) {
+      return res.status(400).json({ error: "fromLang and toLang are required" });
+    }
+
+    const systemPrompt = `You are a professional interpreter. Translate the following text from ${fromLang} to ${toLang}. Output ONLY the translated text — no explanations, no alternatives, no notes. Preserve the original meaning, tone, and register.`;
+
+    const translation = await callOpenRouter(systemPrompt, text.trim());
+    return res.json({ translation });
+  } catch (err) {
+    console.error("translate error:", err);
+    const msg = err instanceof Error ? err.message : "Translation failed";
+    return res.status(502).json({ error: msg });
+  }
+});
+
 export default router;
