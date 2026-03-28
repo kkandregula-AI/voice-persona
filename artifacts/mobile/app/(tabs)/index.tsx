@@ -584,8 +584,11 @@ export default function StudioScreen() {
     unlockAudioContext();
     setIsGeneratingReelAudio(true);
     setReelAudioUri(null);
-    try {
-      if (elevenLabsKey && Platform.OS === "web") {
+
+    let usedElevenLabs = false;
+
+    if (elevenLabsKey && Platform.OS === "web") {
+      try {
         const { audioUrl, voiceId, usedCloning } = await generateWithElevenLabs(
           voiceSample?.uri ?? null,
           reelScript,
@@ -596,6 +599,7 @@ export default function StudioScreen() {
           gender
         );
         if (usedCloning && voiceId) setClonedVoiceId(voiceId);
+        setLastUsedCloning(usedCloning);
         setReelAudioUri(audioUrl);
         const entry: GeneratedEntry = {
           id: Date.now().toString() + Math.random().toString(36).substr(2, 6),
@@ -606,19 +610,50 @@ export default function StudioScreen() {
           cloned: usedCloning,
         };
         addToHistory(entry);
-      } else {
-        Alert.alert(
-          "Voice Generation",
-          "Add an ElevenLabs key in settings to generate reel audio. The script has been copied to the main text area.",
-          [{ text: "OK" }]
-        );
-        setCurrentText(reelScript);
+        usedElevenLabs = true;
+      } catch (err: unknown) {
+        const raw = err instanceof Error ? err.message : "";
+        Alert.alert("Voice Cloning Unavailable", (raw || "ElevenLabs failed.") + "\n\nFalling back to system voice.");
       }
-    } catch {
-      Alert.alert("Audio Generation Failed", "Could not generate voice audio. Try again.");
-    } finally {
-      setIsGeneratingReelAudio(false);
     }
+
+    if (!usedElevenLabs) {
+      const params = getModeParams(currentMode, 10, emotion);
+      const onDone = () => {
+        setIsSpeaking(false);
+        setIsGeneratingReelAudio(false);
+      };
+      const onError = () => {
+        setIsSpeaking(false);
+        setIsGeneratingReelAudio(false);
+      };
+      try {
+        setIsSpeaking(true);
+        const handledByWeb = speakOnWeb(reelScript, params, onDone, onError, gender);
+        if (!handledByWeb) {
+          await Speech.speak(reelScript, {
+            rate: params.rate,
+            pitch: params.pitch,
+            volume: params.volume,
+            onDone,
+            onError,
+          });
+        }
+        const entry: GeneratedEntry = {
+          id: Date.now().toString() + Math.random().toString(36).substr(2, 6),
+          text: reelScript.trim(),
+          mode: currentMode,
+          createdAt: Date.now(),
+          cloned: false,
+        };
+        addToHistory(entry);
+      } catch {
+        setIsSpeaking(false);
+        Alert.alert("Audio Generation Failed", "Could not generate voice audio. Try again.");
+      }
+    }
+
+    if (usedElevenLabs) setIsGeneratingReelAudio(false);
   };
 
   const modeColor =
