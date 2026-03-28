@@ -28,6 +28,24 @@ function getModeVoiceSettings(mode: string) {
   }
 }
 
+function applyEmotionToSettings(
+  base: { stability: number; similarity_boost: number; style: number; use_speaker_boost: boolean },
+  emotion: string
+) {
+  const adj: Record<string, { stability: number; style: number }> = {
+    calm:      { stability: +0.12, style: -0.12 },
+    energetic: { stability: -0.20, style: +0.35 },
+    serious:   { stability: +0.12, style: -0.08 },
+    happy:     { stability: -0.12, style: +0.40 },
+  };
+  const delta = adj[emotion] ?? { stability: 0, style: 0 };
+  return {
+    ...base,
+    stability: Math.max(0, Math.min(1, base.stability + delta.stability)),
+    style: Math.max(0, Math.min(1, base.style + delta.style)),
+  };
+}
+
 router.get("/elevenlabs/check-key", async (req, res) => {
   try {
     const apiKey = getApiKey(req as Parameters<typeof getApiKey>[0]);
@@ -74,11 +92,12 @@ router.post(
         return res.status(400).json({ error: "Missing or invalid ElevenLabs API key" });
       }
 
-      const { text, mode, voiceId: existingVoiceId, gender } = req.body as {
+      const { text, mode, voiceId: existingVoiceId, gender, emotion } = req.body as {
         text?: string;
         mode?: string;
         voiceId?: string;
         gender?: string;
+        emotion?: string;
       };
 
       if (!text || typeof text !== "string" || text.trim().length === 0) {
@@ -127,7 +146,8 @@ router.post(
         usedCloning = true;
       }
 
-      const voiceSettings = getModeVoiceSettings(mode ?? "normal");
+      const baseSettings = getModeVoiceSettings(mode ?? "normal");
+      const voiceSettings = emotion ? applyEmotionToSettings(baseSettings, emotion) : baseSettings;
       const ttsRes = await fetch(`${ELEVENLABS_BASE}/text-to-speech/${voiceId}`, {
         method: "POST",
         headers: {

@@ -30,6 +30,15 @@ import { Waveform } from "@/components/Waveform";
 import { Colors } from "@/constants/colors";
 import { GeneratedEntry, useVoice, VoiceMode } from "@/context/VoiceContext";
 
+type Emotion = "calm" | "energetic" | "serious" | "happy";
+
+const EMOTIONS: { key: Emotion; label: string; icon: string; desc: string }[] = [
+  { key: "calm",      label: "Calm",      icon: "😌", desc: "Slow & peaceful" },
+  { key: "energetic", label: "Energetic", icon: "⚡", desc: "Fast & electric" },
+  { key: "serious",   label: "Serious",   icon: "🎯", desc: "Focused & firm" },
+  { key: "happy",     label: "Happy",     icon: "😊", desc: "Warm & upbeat" },
+];
+
 const VOICE_CAPTURE_PROMPT =
   "Hi! I'd like to capture your unique voice. Please read this sentence naturally in your own voice — just speak as you normally would:";
 
@@ -44,16 +53,23 @@ const SAMPLE_TEXTS: Record<VoiceMode, string> = {
     "Once upon a time, in a world where voices carried the weight of ancient magic, a single word could change everything forever.",
 };
 
-function getModeParams(mode: VoiceMode, sampleDuration: number) {
+function getModeParams(mode: VoiceMode, sampleDuration: number, emotion: Emotion = "serious") {
   const base = sampleDuration > 0 ? Math.min(sampleDuration / 15, 1) : 0.5;
-  switch (mode) {
-    case "news":
-      return { rate: 0.85, pitch: 0.9 + base * 0.1, volume: 1.0 };
-    case "story":
-      return { rate: 0.75, pitch: 1.0 + base * 0.15, volume: 1.0 };
-    default:
-      return { rate: 0.9 + base * 0.1, pitch: 1.0 + base * 0.05, volume: 1.0 };
-  }
+  const modeRate = mode === "news" ? 0.85 : mode === "story" ? 0.75 : 0.9 + base * 0.1;
+  const modePitch = mode === "news" ? 0.9 + base * 0.1 : mode === "story" ? 1.0 + base * 0.15 : 1.0 + base * 0.05;
+
+  const emotionAdj: Record<Emotion, { rateM: number; pitchO: number }> = {
+    calm:      { rateM: 0.86, pitchO: -0.06 },
+    energetic: { rateM: 1.20, pitchO: +0.10 },
+    serious:   { rateM: 0.92, pitchO: -0.03 },
+    happy:     { rateM: 1.12, pitchO: +0.08 },
+  };
+  const adj = emotionAdj[emotion];
+  return {
+    rate:   Math.max(0.1, Math.min(2.0, modeRate  * adj.rateM)),
+    pitch:  Math.max(0.5, Math.min(2.0, modePitch + adj.pitchO)),
+    volume: 1.0,
+  };
 }
 
 function unlockAudioContext() {
@@ -144,6 +160,7 @@ async function generateWithElevenLabs(
   voiceSampleUri: string | null,
   text: string,
   mode: VoiceMode,
+  emotion: Emotion,
   apiKey: string,
   cachedVoiceId: string | null,
   gender: "male" | "female"
@@ -152,6 +169,7 @@ async function generateWithElevenLabs(
   const formData = new FormData();
   formData.append("text", text);
   formData.append("mode", mode);
+  formData.append("emotion", emotion);
   formData.append("gender", gender);
 
   if (cachedVoiceId) {
@@ -205,6 +223,18 @@ async function checkElevenLabsKey(apiKey: string): Promise<{
   }>;
 }
 
+async function generateReelScript(topic: string, mode: VoiceMode, emotion: Emotion): Promise<{ script: string; usedTemplate: boolean }> {
+  const apiBase = getApiBase();
+  const res = await fetch(`${apiBase}/ai/generate-reel`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ topic: topic.trim(), mode, emotion }),
+  });
+  const data = await res.json() as { script?: string; error?: string; usedTemplate?: boolean };
+  if (!res.ok) throw new Error(data.error ?? "Failed to generate script");
+  return { script: data.script ?? "", usedTemplate: !!data.usedTemplate };
+}
+
 async function deleteElevenLabsVoice(voiceId: string, apiKey: string) {
   try {
     const apiBase = getApiBase();
@@ -227,7 +257,7 @@ async function enhanceTextWithAI(
   const response = await fetch(`${baseUrl}/ai/enhance-text`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text, mode }),
+    body: JSON.stringify({ text, mode, emotion: "serious" }),
   });
 
   if (!response.ok) throw new Error("AI enhancement failed");
@@ -275,6 +305,14 @@ export default function StudioScreen() {
     valid: boolean; plan?: string; canCloneVoice?: boolean;
     characterLimit?: number; charactersUsed?: number; error?: string;
   } | null>(null);
+  const [emotion, setEmotion] = useState<Emotion>("serious");
+  const [reelTopic, setReelTopic] = useState("");
+  const [reelScript, setReelScript] = useState("");
+  const [reelUsedTemplate, setReelUsedTemplate] = useState(false);
+  const [isGeneratingReel, setIsGeneratingReel] = useState(false);
+  const [isGeneratingReelAudio, setIsGeneratingReelAudio] = useState(false);
+  const [reelAudioUri, setReelAudioUri] = useState<string | null>(null);
+  const [showReelGenerator, setShowReelGenerator] = useState(false);
 
   const recordingRef = useRef<Audio.Recording | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -403,6 +441,7 @@ export default function StudioScreen() {
           voiceSample?.uri ?? null,
           currentText,
           currentMode,
+          emotion,
           elevenLabsKey,
           clonedVoiceId,
           gender
@@ -439,7 +478,7 @@ export default function StudioScreen() {
 
     if (usedElevenLabs) return;
 
-    const params = getModeParams(currentMode, voiceSample?.duration ?? 10);
+    const params = getModeParams(currentMode, voiceSample?.duration ?? 10, emotion);
     const onDone = () => {
       setIsSpeaking(false);
       setIsGenerating(false);
@@ -518,6 +557,68 @@ export default function StudioScreen() {
   const saveKey = () => {
     setElevenLabsKey(keyInput.trim());
     setShowSettings(false);
+  };
+
+  const handleGenerateReelScript = async () => {
+    if (!reelTopic.trim()) {
+      Alert.alert("No Topic", "Enter a topic for your reel script.");
+      return;
+    }
+    setIsGeneratingReel(true);
+    setReelScript("");
+    setReelAudioUri(null);
+    setReelUsedTemplate(false);
+    try {
+      const { script, usedTemplate } = await generateReelScript(reelTopic, currentMode, emotion);
+      setReelScript(script);
+      setReelUsedTemplate(usedTemplate);
+    } catch {
+      Alert.alert("Script Generation Failed", "Could not generate script. Try again shortly.");
+    } finally {
+      setIsGeneratingReel(false);
+    }
+  };
+
+  const handleConvertReelToVoice = async () => {
+    if (!reelScript.trim()) return;
+    unlockAudioContext();
+    setIsGeneratingReelAudio(true);
+    setReelAudioUri(null);
+    try {
+      if (elevenLabsKey && Platform.OS === "web") {
+        const { audioUrl, voiceId, usedCloning } = await generateWithElevenLabs(
+          voiceSample?.uri ?? null,
+          reelScript,
+          currentMode,
+          emotion,
+          elevenLabsKey,
+          clonedVoiceId,
+          gender
+        );
+        if (usedCloning && voiceId) setClonedVoiceId(voiceId);
+        setReelAudioUri(audioUrl);
+        const entry: GeneratedEntry = {
+          id: Date.now().toString() + Math.random().toString(36).substr(2, 6),
+          text: reelScript.trim(),
+          mode: currentMode,
+          uri: audioUrl,
+          createdAt: Date.now(),
+          cloned: usedCloning,
+        };
+        addToHistory(entry);
+      } else {
+        Alert.alert(
+          "Voice Generation",
+          "Add an ElevenLabs key in settings to generate reel audio. The script has been copied to the main text area.",
+          [{ text: "OK" }]
+        );
+        setCurrentText(reelScript);
+      }
+    } catch {
+      Alert.alert("Audio Generation Failed", "Could not generate voice audio. Try again.");
+    } finally {
+      setIsGeneratingReelAudio(false);
+    }
   };
 
   const modeColor =
@@ -940,6 +1041,36 @@ export default function StudioScreen() {
                   onModeChange={setCurrentMode}
                 />
               </View>
+
+              <View style={styles.section}>
+                <Text style={styles.sectionLabel}>Emotion Engine</Text>
+                <View style={styles.emotionGrid}>
+                  {EMOTIONS.map((e) => (
+                    <Pressable
+                      key={e.key}
+                      onPress={() => setEmotion(e.key)}
+                      style={[
+                        styles.emotionChip,
+                        emotion === e.key && {
+                          backgroundColor: modeColor + "22",
+                          borderColor: modeColor,
+                        },
+                      ]}
+                    >
+                      <Text style={styles.emotionIcon}>{e.icon}</Text>
+                      <View>
+                        <Text style={[
+                          styles.emotionLabel,
+                          emotion === e.key && { color: modeColor },
+                        ]}>
+                          {e.label}
+                        </Text>
+                        <Text style={styles.emotionDesc}>{e.desc}</Text>
+                      </View>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
             </View>
 
             <View style={isWide ? styles.rightCol : styles.fullWidth}>
@@ -1150,6 +1281,128 @@ export default function StudioScreen() {
               </View>
             </View>
           </View>
+
+          {/* Reel Generator */}
+          <Pressable
+            onPress={() => setShowReelGenerator((s) => !s)}
+            style={[styles.reelToggleRow, { borderColor: showReelGenerator ? modeColor : Colors.cardBorder }]}
+          >
+            <View style={[styles.reelToggleIcon, { backgroundColor: modeColor + "22" }]}>
+              <Ionicons name="film-outline" size={18} color={modeColor} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.reelToggleTitle}>AI Reel Generator</Text>
+              <Text style={styles.reelToggleDesc}>Generate a viral 6-line script with AI, then convert to voice</Text>
+            </View>
+            <Ionicons
+              name={showReelGenerator ? "chevron-up" : "chevron-down"}
+              size={18}
+              color={Colors.textSecondary}
+            />
+          </Pressable>
+
+          {showReelGenerator && (
+            <Animated.View entering={FadeInDown} style={styles.reelCard}>
+              <View style={styles.reelTopicRow}>
+                <TextInput
+                  style={styles.reelTopicInput}
+                  value={reelTopic}
+                  onChangeText={setReelTopic}
+                  placeholder="e.g. 'Motivational reel about success' or 'Why discipline beats motivation'"
+                  placeholderTextColor={Colors.textTertiary}
+                  returnKeyType="done"
+                  onSubmitEditing={handleGenerateReelScript}
+                />
+              </View>
+
+              <View style={styles.reelMeta}>
+                <View style={[styles.reelMetaBadge, { backgroundColor: modeColor + "18", borderColor: modeColor + "40" }]}>
+                  <Text style={[styles.reelMetaText, { color: modeColor }]}>
+                    {currentMode === "news" ? "📰 Anchor" : currentMode === "story" ? "📖 Storytelling" : "💬 Natural"} mode
+                  </Text>
+                </View>
+                <View style={[styles.reelMetaBadge, { backgroundColor: Colors.card, borderColor: Colors.cardBorder }]}>
+                  <Text style={styles.reelMetaText}>
+                    {EMOTIONS.find((e) => e.key === emotion)?.icon} {emotion} emotion
+                  </Text>
+                </View>
+              </View>
+
+              <Pressable
+                onPress={handleGenerateReelScript}
+                disabled={isGeneratingReel || !reelTopic.trim()}
+                style={[
+                  styles.reelGenerateBtn,
+                  {
+                    backgroundColor: isGeneratingReel || !reelTopic.trim() ? Colors.cardBorder : modeColor,
+                    opacity: !reelTopic.trim() ? 0.5 : 1,
+                  },
+                ]}
+              >
+                {isGeneratingReel ? (
+                  <>
+                    <Waveform isActive color="#000" barCount={6} height={16} />
+                    <Text style={styles.reelGenerateBtnText}>Writing Script…</Text>
+                  </>
+                ) : (
+                  <>
+                    <Ionicons name="sparkles" size={16} color="#000" />
+                    <Text style={styles.reelGenerateBtnText}>Generate Script</Text>
+                  </>
+                )}
+              </Pressable>
+
+              {reelScript ? (
+                <Animated.View entering={FadeInDown} style={styles.reelScriptSection}>
+                  <View style={styles.reelScriptHeader}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                      <Text style={styles.reelScriptLabel}>Generated Script</Text>
+                      {reelUsedTemplate && (
+                        <View style={styles.templateBadge}>
+                          <Text style={styles.templateBadgeText}>template</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Pressable onPress={() => { setCurrentText(reelScript); }}>
+                      <Text style={[styles.reelCopyBtn, { color: modeColor }]}>Copy to editor →</Text>
+                    </Pressable>
+                  </View>
+                  <TextInput
+                    style={styles.reelScriptInput}
+                    value={reelScript}
+                    onChangeText={setReelScript}
+                    multiline
+                    textAlignVertical="top"
+                    placeholderTextColor={Colors.textTertiary}
+                  />
+
+                  <Pressable
+                    onPress={handleConvertReelToVoice}
+                    disabled={isGeneratingReelAudio}
+                    style={[styles.reelConvertBtn, { borderColor: isGeneratingReelAudio ? Colors.cardBorder : modeColor }]}
+                  >
+                    {isGeneratingReelAudio ? (
+                      <>
+                        <Waveform isActive color={modeColor} barCount={6} height={16} />
+                        <Text style={[styles.reelConvertBtnText, { color: modeColor }]}>Generating Voice…</Text>
+                      </>
+                    ) : (
+                      <>
+                        <Ionicons name="mic" size={16} color={modeColor} />
+                        <Text style={[styles.reelConvertBtnText, { color: modeColor }]}>Convert to Voice</Text>
+                      </>
+                    )}
+                  </Pressable>
+
+                  {reelAudioUri && (
+                    <Animated.View entering={FadeInDown} style={{ marginTop: 12 }}>
+                      <AudioPlayer uri={reelAudioUri} label="Reel Voice Output" />
+                    </Animated.View>
+                  )}
+                </Animated.View>
+              ) : null}
+            </Animated.View>
+          )}
 
           <View style={{ height: 120 }} />
         </ScrollView>
@@ -1591,6 +1844,188 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
     lineHeight: 16,
+  },
+
+  emotionGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  emotionChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    backgroundColor: Colors.card,
+    flex: 1,
+    minWidth: "45%",
+  },
+  emotionIcon: {
+    fontSize: 18,
+  },
+  emotionLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: Colors.text,
+    fontFamily: "Inter_600SemiBold",
+  },
+  emotionDesc: {
+    fontSize: 10,
+    color: Colors.textTertiary,
+    marginTop: 1,
+  },
+
+  reelToggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: Colors.card,
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 16,
+    marginTop: 4,
+  },
+  reelToggleIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  reelToggleTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: Colors.text,
+    fontFamily: "Inter_700Bold",
+  },
+  reelToggleDesc: {
+    fontSize: 11,
+    color: Colors.textTertiary,
+    marginTop: 2,
+  },
+
+  reelCard: {
+    backgroundColor: Colors.card,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    padding: 16,
+    gap: 12,
+    marginTop: 4,
+  },
+  reelTopicRow: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    backgroundColor: Colors.background,
+    overflow: "hidden",
+  },
+  reelTopicInput: {
+    color: Colors.text,
+    fontSize: 14,
+    padding: 14,
+    fontFamily: "Inter_400Regular",
+    minHeight: 52,
+  },
+  reelMeta: {
+    flexDirection: "row",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  reelMetaBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  reelMetaText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: Colors.textSecondary,
+    fontFamily: "Inter_600SemiBold",
+  },
+  reelGenerateBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 12,
+  },
+  reelGenerateBtnText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#000",
+    fontFamily: "Inter_700Bold",
+  },
+  reelScriptSection: {
+    gap: 10,
+    borderTopWidth: 1,
+    borderTopColor: Colors.cardBorder,
+    paddingTop: 12,
+  },
+  reelScriptHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  reelScriptLabel: {
+    fontSize: 12,
+    color: Colors.textTertiary,
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+    fontFamily: "Inter_500Medium",
+  },
+  templateBadge: {
+    backgroundColor: "rgba(167,139,250,0.15)",
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: "rgba(167,139,250,0.3)",
+  },
+  templateBadgeText: {
+    fontSize: 10,
+    color: Colors.accentTertiary,
+    fontFamily: "Inter_500Medium",
+    letterSpacing: 0.5,
+  },
+  reelCopyBtn: {
+    fontSize: 12,
+    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
+  },
+  reelScriptInput: {
+    color: Colors.text,
+    fontSize: 14,
+    lineHeight: 22,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    backgroundColor: Colors.background,
+    padding: 14,
+    minHeight: 160,
+    fontFamily: "Inter_400Regular",
+    textAlignVertical: "top",
+  },
+  reelConvertBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 13,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    backgroundColor: "transparent",
+  },
+  reelConvertBtnText: {
+    fontSize: 14,
+    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
   },
 
   aiBadge: {
