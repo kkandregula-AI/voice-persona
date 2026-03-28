@@ -39,13 +39,28 @@ artifacts-monorepo/
 
 A PWA-first mobile app built with Expo + React Native Web.
 
+### Navigation (4 tabs)
+- **Home** (`index.tsx`): Hero cards linking to Studio/Creator, quick actions
+- **Studio** (`studio.tsx`): Manual script writing + ElevenLabs/system TTS
+- **Create** (`create.tsx`): Creator Mode — 3-step AI content generator
+- **History** (`history.tsx`): All generated entries, filterable by All/Studio/Creator/With Audio
+
 ### Features
 - **Voice Recording**: Record a 10–20 second voice sample using the microphone
 - **3 TTS Modes**: Natural, News Anchor (formal), Storytelling (expressive)
-- **Text-to-Speech**: Converts text to speech with tone based on the selected mode
-- **Waveform Visualization**: Animated waveform bars during recording
-- **History**: AsyncStorage-persisted history of all generated entries
+- **4 Emotions (Emotion Engine)**: Calm, Energetic, Serious, Happy — adjusts rate/pitch
+- **ElevenLabs Voice Cloning**: Clones uploaded voice sample via API; falls back to system TTS
+- **AI Script Generation**: OpenRouter free models with 6-model fallback chain + template fallback
+- **Creator Mode**: 4 content types (Reel/News/Speech/Podcast) × 3 tones → AI script → voice
+- **Waveform Visualization**: Animated waveform bars during recording and playback
+- **AudioPlayer**: Playback + download button for ElevenLabs audio files
+- **History**: AsyncStorage-persisted history with source badges (Studio/Creator/Audio)
 - **PWA-ready**: Installable from browser, standalone display, proper manifest
+
+### Data Model (GeneratedEntry)
+```ts
+{ id, text, mode, createdAt, cloned, uri?, source?: "studio"|"creator", title? }
+```
 
 ### PWA Configuration
 - `web.display: "standalone"` — fullscreen app-like experience

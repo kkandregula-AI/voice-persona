@@ -7,6 +7,7 @@ import {
   FlatList,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -147,24 +148,30 @@ function HistoryItem({
       <View style={[styles.modeStripe, { backgroundColor: modeConf.color }]} />
       <View style={styles.itemContent}>
         <View style={styles.itemHeader}>
-          <View
-            style={[
-              styles.modeBadge,
-              { backgroundColor: modeConf.color + "22" },
-            ]}
-          >
-            <Ionicons name={modeConf.icon} size={11} color={modeConf.color} />
-            <Text style={[styles.modeBadgeText, { color: modeConf.color }]}>
-              {modeConf.label}
-            </Text>
+          <View style={styles.itemBadgeRow}>
+            <View style={[styles.modeBadge, { backgroundColor: modeConf.color + "22" }]}>
+              <Ionicons name={modeConf.icon} size={11} color={modeConf.color} />
+              <Text style={[styles.modeBadgeText, { color: modeConf.color }]}>{modeConf.label}</Text>
+            </View>
+            {entry.source === "creator" && (
+              <View style={[styles.sourceBadge, { backgroundColor: Colors.accentTertiary + "22", borderColor: Colors.accentTertiary + "55" }]}>
+                <Ionicons name="flash" size={9} color={Colors.accentTertiary} />
+                <Text style={[styles.sourceBadgeText, { color: Colors.accentTertiary }]}>Creator</Text>
+              </View>
+            )}
+            {entry.uri && (
+              <View style={[styles.sourceBadge, { backgroundColor: Colors.success + "22", borderColor: Colors.success + "55" }]}>
+                <Ionicons name="musical-notes" size={9} color={Colors.success} />
+                <Text style={[styles.sourceBadgeText, { color: Colors.success }]}>Audio</Text>
+              </View>
+            )}
           </View>
-          <Text style={styles.itemDate}>
-            {dateStr} · {timeStr}
-          </Text>
+          <Text style={styles.itemDate}>{dateStr} · {timeStr}</Text>
         </View>
-        <Text style={styles.itemText} numberOfLines={3}>
-          {entry.text}
-        </Text>
+        {entry.title ? (
+          <Text style={styles.itemTitle} numberOfLines={1}>{entry.title}</Text>
+        ) : null}
+        <Text style={styles.itemText} numberOfLines={3}>{entry.text}</Text>
       </View>
       <View style={styles.itemActions}>
         <Pressable
@@ -188,14 +195,28 @@ function HistoryItem({
   );
 }
 
+type HistoryTab = "all" | "studio" | "creator" | "audio";
+
+const TABS: { key: HistoryTab; label: string; color: string }[] = [
+  { key: "all",     label: "All",     color: Colors.accent },
+  { key: "studio",  label: "Studio",  color: Colors.normalMode },
+  { key: "creator", label: "Creator", color: Colors.accentTertiary },
+  { key: "audio",   label: "With Audio", color: Colors.success },
+];
+
 export default function HistoryScreen() {
   const insets = useSafeAreaInsets();
   const { history, removeFromHistory, clearHistory } = useVoice();
-  const [filter, setFilter] = useState<VoiceMode | null>(null);
+  const [tab, setTab] = useState<HistoryTab>("all");
 
-  const filtered = filter
-    ? history.filter((e) => e.mode === filter)
-    : history;
+  const filtered = history.filter((e) => {
+    if (tab === "all") return true;
+    if (tab === "studio") return !e.source || e.source === "studio";
+    if (tab === "creator") return e.source === "creator";
+    if (tab === "audio") return !!e.uri;
+    return true;
+  });
+
   const topPad = Platform.OS === "web" ? 20 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
@@ -215,89 +236,70 @@ export default function HistoryScreen() {
     ]);
   };
 
-  const modes: (VoiceMode | null)[] = [null, "normal", "news", "story"];
+  const activeTab = TABS.find((t) => t.key === tab)!;
 
   return (
     <View style={[styles.container, { paddingTop: topPad }]}>
       <View style={styles.header}>
         <View>
           <Text style={styles.title}>History</Text>
-          <Text style={styles.subtitle}>{history.length} saved speeches</Text>
+          <Text style={styles.subtitle}>{history.length} saved · {filtered.length} shown</Text>
         </View>
         {history.length > 0 && (
           <Pressable onPress={handleClearAll} style={styles.clearAllBtn}>
-            <Ionicons
-              name="trash-outline"
-              size={16}
-              color={Colors.textTertiary}
-            />
+            <Ionicons name="trash-outline" size={16} color={Colors.textTertiary} />
           </Pressable>
         )}
       </View>
 
-      <View style={styles.filterRow}>
-        {modes.map((m) => {
-          const isSelected = filter === m;
-          const conf = m ? MODE_CONFIG[m] : null;
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll} contentContainerStyle={styles.filterRow}>
+        {TABS.map((t) => {
+          const isSelected = tab === t.key;
           return (
             <Pressable
-              key={m ?? "all"}
-              onPress={() => setFilter(m)}
+              key={t.key}
+              onPress={() => setTab(t.key)}
               style={[
                 styles.filterPill,
-                isSelected && {
-                  backgroundColor: (conf?.color ?? Colors.accent) + "22",
-                  borderColor: conf?.color ?? Colors.accent,
-                },
+                isSelected && { backgroundColor: t.color + "22", borderColor: t.color },
                 !isSelected && styles.filterPillInactive,
               ]}
             >
-              <Text
-                style={[
-                  styles.filterPillText,
-                  {
-                    color: isSelected
-                      ? (conf?.color ?? Colors.accent)
-                      : Colors.textSecondary,
-                  },
-                ]}
-              >
-                {m ? conf!.label : "All"}
+              <Text style={[styles.filterPillText, { color: isSelected ? t.color : Colors.textSecondary }]}>
+                {t.label}
               </Text>
             </Pressable>
           );
         })}
-      </View>
+      </ScrollView>
 
       {filtered.length === 0 ? (
         <View style={styles.empty}>
           <Ionicons name="time-outline" size={48} color={Colors.textTertiary} />
-          <Text style={styles.emptyTitle}>No entries yet</Text>
+          <Text style={styles.emptyTitle}>
+            {tab === "all" ? "No entries yet" : `No ${activeTab.label} entries`}
+          </Text>
           <Text style={styles.emptySubtitle}>
-            Generate speech in the Studio tab to see your history here.
+            {tab === "creator"
+              ? "Use Creator Mode to generate AI-powered content."
+              : tab === "audio"
+              ? "Add an ElevenLabs key to generate downloadable audio files."
+              : "Generate speech in Studio to see your history here."}
           </Text>
         </View>
       ) : (
         <>
           <View style={styles.replayHint}>
             <Ionicons name="play-circle-outline" size={13} color={Colors.textTertiary} />
-            <Text style={styles.replayHintText}>
-              Tap ▶ on any entry to replay the speech
-            </Text>
+            <Text style={styles.replayHintText}>Tap ▶ on any entry to replay</Text>
           </View>
           <FlatList
             data={filtered}
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => (
-              <HistoryItem
-                entry={item}
-                onDelete={() => removeFromHistory(item.id)}
-              />
+              <HistoryItem entry={item} onDelete={() => removeFromHistory(item.id)} />
             )}
-            contentContainerStyle={[
-              styles.list,
-              { paddingBottom: bottomPad + 100 },
-            ]}
+            contentContainerStyle={[styles.list, { paddingBottom: bottomPad + 100 }]}
             showsVerticalScrollIndicator={false}
             ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
           />
@@ -339,10 +341,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginTop: 4,
   },
+  filterScroll: {
+    marginBottom: 12,
+    flexGrow: 0,
+  },
   filterRow: {
     flexDirection: "row",
     gap: 8,
-    marginBottom: 12,
+    paddingRight: 20,
   },
   filterPill: {
     paddingHorizontal: 14,
@@ -395,6 +401,12 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
+  itemBadgeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    flexWrap: "wrap",
+  },
   modeBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -407,16 +419,35 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontFamily: "Inter_600SemiBold",
   },
+  sourceBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  sourceBadgeText: {
+    fontSize: 10,
+    fontFamily: "Inter_600SemiBold",
+  },
   itemDate: {
     fontSize: 11,
     color: Colors.textTertiary,
     fontFamily: "Inter_400Regular",
   },
+  itemTitle: {
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
+    color: Colors.text,
+    lineHeight: 17,
+  },
   itemText: {
-    fontSize: 14,
+    fontSize: 13,
     color: Colors.textSecondary,
     fontFamily: "Inter_400Regular",
-    lineHeight: 20,
+    lineHeight: 19,
   },
   itemActions: {
     flexDirection: "column",

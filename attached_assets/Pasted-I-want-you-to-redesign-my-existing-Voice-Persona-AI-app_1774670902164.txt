@@ -1,0 +1,104 @@
+I want you to redesign my existing Voice Persona AI app UI based on the attached screenshot.
+
+IMPORTANT:
+Follow the visual layout, structure, and navigation from the image closely.
+
+GOAL:
+Make the app clean, premium, and clearly separated into two distinct modes:
+1. Voice Studio (manual + AI-assisted)
+2. Creator Mode (AI-generated content)
+
+-----------------------------------
+UI STRUCTURE (MATCH SCREENSHOT)
+-----------------------------------
+
+1. Home Screen:
+- Two large cards:
+  - Voice Studio (Write your script and convert to speech)
+  - Creator Mode (Generate content from a topic using AI)
+- Bottom navigation:
+  - Home
+  - Studio
+  - Create
+  - History
+
+-----------------------------------
+2. Voice Studio Screen:
+-----------------------------------
+- Title: Voice Studio
+- Subtitle: “Write, refine, and generate speech in your own voice”
+- Text area: “Your Script”
+- Button: “Refine My Script” (replace AI Enhance)
+- Emotion chips: Calm, Energetic, Serious, Happy
+- Style chips: Natural, Anchor, Storytelling
+- Main CTA: “Generate Speech”
+- Audio player preview below
+
+-----------------------------------
+3. Creator Mode Screen:
+-----------------------------------
+- Title: Creator Mode
+- Subtitle: “Generate ready-to-speak content from just a topic”
+- Step-based UI:
+  Step 1: Enter Topic
+  Step 2: Generate Script
+  Step 3: Convert to Voice
+
+- Input: Topic (not full script)
+- Options:
+  - Content Type (Reel / News / Speech / Podcast)
+  - Tone (Motivational / Professional / Emotional)
+- Button: “Generate Script”
+
+- Show structured output:
+  - Hook
+  - Message
+  - CTA
+
+- Buttons:
+  - “Generate Voice”
+  - “Use in Voice Studio”
+
+-----------------------------------
+4. History Screen:
+-----------------------------------
+- Tabs:
+  - All
+  - Recordings
+  - Speeches
+  - Creator Content
+
+- Show list items with:
+  - Title
+  - Mode (Studio / Creator)
+  - Duration
+  - Date
+
+-----------------------------------
+DESIGN REQUIREMENTS:
+-----------------------------------
+- Dark theme (like screenshot)
+- Gradient accents (blue/purple)
+- Rounded cards
+- Clean mobile-first layout
+- Smooth transitions
+
+-----------------------------------
+UX REQUIREMENTS:
+-----------------------------------
+- Voice Studio and Creator Mode must feel different
+- Do NOT reuse same layout for both
+- Creator Mode should feel guided (step flow)
+- Voice Studio should feel like an editor
+
+-----------------------------------
+DO NOT:
+-----------------------------------
+- Do not duplicate text input in both screens
+- Do not keep old “Preview Speech” naming
+- Do not keep confusing overlapping flows
+
+-----------------------------------
+GOAL:
+-----------------------------------
+This app should look like a real premium AI product suitable for a hackathon demo and impress judges with clarity and UX.

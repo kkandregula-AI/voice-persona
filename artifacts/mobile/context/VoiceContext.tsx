@@ -24,6 +24,8 @@ export interface GeneratedEntry {
   createdAt: number;
   duration?: number;
   cloned?: boolean;
+  source?: "studio" | "creator";
+  title?: string;
 }
 
 interface VoiceContextType {
