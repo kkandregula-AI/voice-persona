@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -13,7 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import Animated, { FadeInDown } from "react-native-reanimated";
+import Animated, { FadeInDown, FadeInUp, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Colors } from "@/constants/colors";
@@ -56,6 +56,9 @@ const QUICK_PHRASES = [
   "I am lost.",
 ];
 
+type Mode = "speak" | "listen";
+type Status = "idle" | "listening" | "processing" | "speaking";
+
 type ConvEntry = {
   id: string;
   speaker: "you" | "them";
@@ -81,6 +84,7 @@ async function translateText(
   const from = fromCode.split("-")[0];
   const to = toCode.split("-")[0];
 
+  // Primary: MyMemory (free, no key, instant)
   try {
     const mmRes = await fetch(
       `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${from}|${to}`
@@ -99,6 +103,7 @@ async function translateText(
     // fall through to AI
   }
 
+  // Fallback: AI server
   const res = await fetch(`${getApiBase()}/ai/translate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -123,6 +128,57 @@ function speakText(text: string, langCode: string) {
   utterance.pitch = 1;
   utterance.volume = 1;
   window.speechSynthesis.speak(utterance);
+}
+
+// Request mic permission once and hold the stream so the browser
+// remembers the grant and never prompts again during the session.
+let micStreamCache: MediaStream | null = null;
+async function ensureMicPermission(): Promise<boolean> {
+  if (Platform.OS !== "web" || typeof navigator === "undefined") return false;
+  if (micStreamCache) return true;
+  try {
+    micStreamCache = await navigator.mediaDevices.getUserMedia({ audio: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function startSpeechRecognition(
+  langCode: string,
+  onResult: (text: string) => void,
+  onEnd: () => void,
+  onError: (msg: string) => void
+): (() => void) | null {
+  if (Platform.OS !== "web" || typeof window === "undefined") {
+    onError("Speech recognition is only available in a web browser.");
+    return null;
+  }
+  const SR =
+    (window as unknown as { SpeechRecognition?: new () => SpeechRecognition; webkitSpeechRecognition?: new () => SpeechRecognition })
+      .SpeechRecognition ||
+    (window as unknown as { webkitSpeechRecognition?: new () => SpeechRecognition }).webkitSpeechRecognition;
+  if (!SR) {
+    onError("Voice input isn't supported in this browser. Use Chrome on Android or desktop, or type below.");
+    return null;
+  }
+  const recognition = new SR();
+  recognition.lang = langCode;
+  recognition.continuous = false;
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
+  recognition.onresult = (e: SpeechRecognitionEvent) => {
+    const text = e.results[0]?.[0]?.transcript ?? "";
+    if (text.trim()) onResult(text.trim());
+  };
+  recognition.onend = onEnd;
+  recognition.onerror = (e: SpeechRecognitionErrorEvent) => {
+    if (e.error === "no-speech") onError("No speech detected. Try again.");
+    else if (e.error === "not-allowed") onError("Microphone access denied. Please allow mic in browser settings.");
+    else onError(`Recognition error: ${e.error}`);
+  };
+  recognition.start();
+  return () => { try { recognition.abort(); } catch {} };
 }
 
 function LangPickerModal({
@@ -165,6 +221,40 @@ function LangPickerModal({
         </Pressable>
       </Pressable>
     </Modal>
+  );
+}
+
+function PulsingMic({ status }: { status: Status }) {
+  const scale = useSharedValue(1);
+
+  React.useEffect(() => {
+    if (status === "listening") {
+      scale.value = withRepeat(withTiming(1.18, { duration: 700 }), -1, true);
+    } else {
+      scale.value = withTiming(1, { duration: 200 });
+    }
+  }, [status]);
+
+  const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+
+  const bgColor =
+    status === "listening" ? ACCENT_TRAVEL :
+    status === "processing" ? Colors.accentSecondary :
+    status === "speaking" ? Colors.accentTertiary :
+    Colors.card;
+
+  const iconColor = status === "idle" ? Colors.textSecondary : "#fff";
+
+  return (
+    <Animated.View style={[styles.micOuter, animStyle]}>
+      <View style={[styles.micBtn, { backgroundColor: bgColor }]}>
+        <Feather
+          name={status === "speaking" ? "volume-2" : "mic"}
+          size={36}
+          color={iconColor}
+        />
+      </View>
+    </Animated.View>
   );
 }
 
@@ -215,38 +305,161 @@ export default function TravelTalkScreen() {
 
   const [myLang, setMyLang] = useState<Language>(LANGUAGES[0]!);
   const [theirLang, setTheirLang] = useState<Language>(LANGUAGES[1]!);
+  const [mode, setMode] = useState<Mode>("speak");
+  const [status, setStatus] = useState<Status>("idle");
+  const [transcript, setTranscript] = useState("");
+  const [translation, setTranslation] = useState("");
   const [conversation, setConversation] = useState<ConvEntry[]>([]);
   const [showMyPicker, setShowMyPicker] = useState(false);
   const [showTheirPicker, setShowTheirPicker] = useState(false);
   const [showPhrases, setShowPhrases] = useState(false);
+  const [error, setError] = useState("");
   const [typeInput, setTypeInput] = useState("");
   const [typeTranslation, setTypeTranslation] = useState("");
   const [typeLoading, setTypeLoading] = useState(false);
+  const [speechSupported, setSpeechSupported] = useState(true);
+
+  const stopRecognitionRef = useRef<(() => void) | null>(null);
+
+  // On mount: check speech support and pre-request mic permission so the
+  // browser remembers the grant and never prompts mid-session.
+  useEffect(() => {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      const w = window as unknown as { SpeechRecognition?: unknown; webkitSpeechRecognition?: unknown };
+      const supported = !!(w.SpeechRecognition || w.webkitSpeechRecognition);
+      setSpeechSupported(supported);
+      if (supported) {
+        // Silently request permission upfront — no repeated prompts later
+        ensureMicPermission();
+      }
+    } else {
+      setSpeechSupported(false);
+    }
+  }, []);
+
+  const sourceLang = mode === "speak" ? myLang : theirLang;
+  const targetLang = mode === "speak" ? theirLang : myLang;
+  const statusLabel =
+    status === "listening" ? (mode === "speak" ? "Listening to you…" : "Listening to them…") :
+    status === "processing" ? "Translating…" :
+    status === "speaking" ? "Speaking translation…" :
+    mode === "speak" ? "Tap to speak" : "Tap to listen";
 
   const handleSwap = () => {
     setMyLang(theirLang);
     setTheirLang(myLang);
+    setTranscript("");
+    setTranslation("");
+    setError("");
     setTypeTranslation("");
   };
 
+  const handleMicPress = useCallback(async () => {
+    setError("");
+    if (status === "listening") {
+      stopRecognitionRef.current?.();
+      stopRecognitionRef.current = null;
+      setStatus("idle");
+      return;
+    }
+    if (status === "processing" || status === "speaking") return;
+
+    setTranscript("");
+    setTranslation("");
+    setStatus("listening");
+
+    const stop = startSpeechRecognition(
+      sourceLang.code,
+      async (text) => {
+        setTranscript(text);
+        setStatus("processing");
+        try {
+          const result = await translateText(text, sourceLang.code, targetLang.code);
+          setTranslation(result);
+          setStatus("speaking");
+          speakText(result, targetLang.code);
+          const speakMs = Math.max(3000, result.length * 75);
+          setTimeout(() => setStatus("idle"), speakMs);
+          const entry: ConvEntry = {
+            id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+            speaker: mode === "speak" ? "you" : "them",
+            original: text,
+            translated: result,
+            originalLang: sourceLang.label,
+            translatedLang: targetLang.label,
+            timestamp: Date.now(),
+          };
+          setConversation((prev) => [entry, ...prev].slice(0, 30));
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Translation failed");
+          setStatus("idle");
+        }
+      },
+      () => {
+        if (status === "listening") setStatus("idle");
+      },
+      (msg) => {
+        setError(msg);
+        setStatus("idle");
+      }
+    );
+    stopRecognitionRef.current = stop;
+  }, [status, sourceLang, targetLang, mode]);
+
+  const handleSpeak = () => {
+    if (!translation) return;
+    setStatus("speaking");
+    speakText(translation, targetLang.code);
+    setTimeout(() => setStatus("idle"), 3000);
+  };
+
   const handleQuickPhrase = async (phrase: string) => {
+    setError("");
+    setTranscript(phrase);
+    setTranslation("");
+    setStatus("processing");
     try {
       const result = await translateText(phrase, myLang.code, theirLang.code);
+      setTranslation(result);
+      setStatus("speaking");
       speakText(result, theirLang.code);
-      setConversation((prev) => [
-        {
-          id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
-          speaker: "you",
-          original: phrase,
-          translated: result,
-          originalLang: myLang.label,
-          translatedLang: theirLang.label,
-          timestamp: Date.now(),
-        },
-        ...prev,
-      ].slice(0, 30));
-    } catch {
-      // silent — phrase chips show no error state
+      const speakMs = Math.max(3000, result.length * 75);
+      setTimeout(() => setStatus("idle"), speakMs);
+      const entry: ConvEntry = {
+        id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+        speaker: "you",
+        original: phrase,
+        translated: result,
+        originalLang: myLang.label,
+        translatedLang: theirLang.label,
+        timestamp: Date.now(),
+      };
+      setConversation((prev) => [entry, ...prev].slice(0, 30));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Translation failed");
+      setStatus("idle");
+    }
+  };
+
+  const handleCopyConv = (entry: ConvEntry) => {
+    const text = `${entry.original}\n→ ${entry.translated}`;
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(text).catch(() => {});
+    }
+  };
+
+  const handleReplayConv = (entry: ConvEntry) => {
+    speakText(entry.translated, entry.speaker === "you" ? theirLang.code : myLang.code);
+  };
+
+  const handleClearConv = () => {
+    if (Platform.OS === "web") {
+      if (window.confirm("Clear all conversation history?")) setConversation([]);
+    } else {
+      Alert.alert("Clear", "Clear conversation history?", [
+        { text: "Cancel", style: "cancel" },
+        { text: "Clear", style: "destructive", onPress: () => setConversation([]) },
+      ]);
     }
   };
 
@@ -259,44 +472,20 @@ export default function TravelTalkScreen() {
       const result = await translateText(text, myLang.code, theirLang.code);
       setTypeTranslation(result);
       speakText(result, theirLang.code);
-      setConversation((prev) => [
-        {
-          id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
-          speaker: "you",
-          original: text,
-          translated: result,
-          originalLang: myLang.label,
-          translatedLang: theirLang.label,
-          timestamp: Date.now(),
-        },
-        ...prev,
-      ].slice(0, 30));
+      const entry: ConvEntry = {
+        id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+        speaker: "you",
+        original: text,
+        translated: result,
+        originalLang: myLang.label,
+        translatedLang: theirLang.label,
+        timestamp: Date.now(),
+      };
+      setConversation((prev) => [entry, ...prev].slice(0, 30));
     } catch (err) {
       setTypeTranslation("⚠ " + (err instanceof Error ? err.message : "Translation failed"));
     } finally {
       setTypeLoading(false);
-    }
-  };
-
-  const handleCopyConv = (entry: ConvEntry) => {
-    const text = `${entry.original}\n→ ${entry.translated}`;
-    if (typeof navigator !== "undefined" && navigator.clipboard) {
-      navigator.clipboard.writeText(text).catch(() => {});
-    }
-  };
-
-  const handleReplayConv = (entry: ConvEntry) => {
-    speakText(entry.translated, theirLang.code);
-  };
-
-  const handleClearConv = () => {
-    if (Platform.OS === "web") {
-      if (window.confirm("Clear all conversation history?")) setConversation([]);
-    } else {
-      Alert.alert("Clear", "Clear conversation history?", [
-        { text: "Cancel", style: "cancel" },
-        { text: "Clear", style: "destructive", onPress: () => setConversation([]) },
-      ]);
     }
   };
 
@@ -324,7 +513,7 @@ export default function TravelTalkScreen() {
         <View style={styles.header}>
           <View>
             <Text style={styles.title}>Travel Talk</Text>
-            <Text style={styles.subtitle}>Type a phrase. Let AI bridge the language.</Text>
+            <Text style={styles.subtitle}>Speak naturally. Let AI bridge the language.</Text>
           </View>
           <View style={[styles.headerBadge, { backgroundColor: ACCENT_TRAVEL_DIM, borderColor: ACCENT_TRAVEL_BORDER }]}>
             <Feather name="globe" size={16} color={ACCENT_TRAVEL} />
@@ -334,7 +523,7 @@ export default function TravelTalkScreen() {
         {/* Language selector */}
         <View style={styles.langSelector}>
           <Pressable style={styles.langBtn} onPress={() => setShowMyPicker(true)}>
-            <Text style={styles.langFlagLarge}>{myLang.flag}</Text>
+            <Text style={styles.langFlag}>{myLang.flag}</Text>
             <View>
               <Text style={styles.langBtnLabel}>My Language</Text>
               <Text style={styles.langBtnValue}>{myLang.label}</Text>
@@ -347,7 +536,7 @@ export default function TravelTalkScreen() {
           </Pressable>
 
           <Pressable style={styles.langBtn} onPress={() => setShowTheirPicker(true)}>
-            <Text style={styles.langFlagLarge}>{theirLang.flag}</Text>
+            <Text style={styles.langFlag}>{theirLang.flag}</Text>
             <View>
               <Text style={styles.langBtnLabel}>Their Language</Text>
               <Text style={styles.langBtnValue}>{theirLang.label}</Text>
@@ -356,15 +545,105 @@ export default function TravelTalkScreen() {
           </Pressable>
         </View>
 
-        {/* Direction indicator */}
-        <View style={styles.directionRow}>
-          <Text style={styles.directionText}>
-            {myLang.flag} {myLang.label}
+        {/* Mode toggle */}
+        <View style={styles.modeRow}>
+          <Pressable
+            style={[styles.modeBtn, mode === "speak" && { backgroundColor: ACCENT_TRAVEL_DIM, borderColor: ACCENT_TRAVEL }]}
+            onPress={() => { setMode("speak"); setTranscript(""); setTranslation(""); setError(""); }}
+          >
+            <Feather name="mic" size={14} color={mode === "speak" ? ACCENT_TRAVEL : Colors.textSecondary} />
+            <Text style={[styles.modeBtnText, mode === "speak" && { color: ACCENT_TRAVEL }]}>Speak Out</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.modeBtn, mode === "listen" && { backgroundColor: Colors.accentSecondary + "22", borderColor: Colors.accentSecondary }]}
+            onPress={() => { setMode("listen"); setTranscript(""); setTranslation(""); setError(""); }}
+          >
+            <Feather name="headphones" size={14} color={mode === "listen" ? Colors.accentSecondary : Colors.textSecondary} />
+            <Text style={[styles.modeBtnText, mode === "listen" && { color: Colors.accentSecondary }]}>Listen Back</Text>
+          </Pressable>
+        </View>
+
+        {/* Main interaction card */}
+        <View style={styles.interactCard}>
+          <Text style={styles.modeContext}>
+            {mode === "speak"
+              ? `${myLang.flag} ${myLang.label} → ${theirLang.flag} ${theirLang.label}`
+              : `${theirLang.flag} ${theirLang.label} → ${myLang.flag} ${myLang.label}`}
           </Text>
-          <Feather name="arrow-right" size={14} color={ACCENT_TRAVEL} />
-          <Text style={styles.directionText}>
-            {theirLang.flag} {theirLang.label}
+
+          {/* Mic button */}
+          <Pressable
+            onPress={handleMicPress}
+            style={[styles.micWrapper, !speechSupported && { opacity: 0.35 }]}
+            disabled={status === "processing" || !speechSupported}
+          >
+            <PulsingMic status={status} />
+          </Pressable>
+
+          {/* Status */}
+          <Text style={[styles.statusText, status === "listening" && { color: ACCENT_TRAVEL }, status === "processing" && { color: Colors.accentSecondary }]}>
+            {speechSupported ? statusLabel : "Voice not supported"}
           </Text>
+
+          {/* iOS / unsupported browser notice */}
+          {!speechSupported && (
+            <Animated.View entering={FadeInUp} style={styles.noSpeechBanner}>
+              <Feather name="info" size={13} color={Colors.textSecondary} />
+              <Text style={styles.noSpeechText}>
+                Voice input requires Chrome on Android or desktop.{"\n"}Use <Text style={{ color: ACCENT_TRAVEL, fontWeight: "700" }}>Type to Translate</Text> below — it works on all devices.
+              </Text>
+            </Animated.View>
+          )}
+
+          {/* Error */}
+          {!!error && (
+            <Animated.View entering={FadeInUp} style={styles.errorBox}>
+              <Feather name="alert-circle" size={13} color={Colors.accentSecondary} />
+              <Text style={styles.errorText}>{error}</Text>
+            </Animated.View>
+          )}
+
+          {/* Result area */}
+          {!!transcript && (
+            <Animated.View entering={FadeInDown} style={styles.resultArea}>
+              <View style={styles.resultRow}>
+                <View style={styles.resultLangTag}>
+                  <Text style={styles.resultLangText}>{sourceLang.flag} Original</Text>
+                </View>
+              </View>
+              <Text style={styles.transcriptText}>{transcript}</Text>
+
+              {!!translation && (
+                <Animated.View entering={FadeInDown} style={styles.translationCard}>
+                  <View style={styles.translationCardHeader}>
+                    <View style={[styles.resultLangTag, { backgroundColor: ACCENT_TRAVEL_DIM, borderColor: ACCENT_TRAVEL_BORDER }]}>
+                      <Text style={[styles.resultLangText, { color: ACCENT_TRAVEL }]}>
+                        {targetLang.flag} {targetLang.label}
+                      </Text>
+                    </View>
+                    <View style={styles.showToThemBadge}>
+                      <Feather name="eye" size={11} color={ACCENT_TRAVEL} />
+                      <Text style={styles.showToThemText}>
+                        {mode === "speak" ? "Show to them" : "Your translation"}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={styles.translationTextLarge}>{translation}</Text>
+                  <Pressable onPress={handleSpeak} style={styles.speakBtn}>
+                    <Feather name="volume-2" size={15} color="#fff" />
+                    <Text style={styles.speakBtnText}>Speak Again</Text>
+                  </Pressable>
+                </Animated.View>
+              )}
+            </Animated.View>
+          )}
+
+          {status === "processing" && !translation && (
+            <View style={styles.processingRow}>
+              <Feather name="loader" size={14} color={Colors.accentSecondary} />
+              <Text style={styles.processingText}>Translating…</Text>
+            </View>
+          )}
         </View>
 
         {/* Type to Translate */}
@@ -402,7 +681,7 @@ export default function TravelTalkScreen() {
                   <Text style={styles.showToThemText}>Show to them</Text>
                 </View>
               </View>
-              <Text style={styles.typeResultText}>{typeTranslation}</Text>
+              <Text style={styles.translationTextLarge}>{typeTranslation}</Text>
               <Pressable onPress={() => speakText(typeTranslation, theirLang.code)} style={styles.typeSpeakBtn}>
                 <Feather name="volume-2" size={14} color={ACCENT_TRAVEL} />
                 <Text style={styles.typeSpeakBtnText}>Speak Again</Text>
@@ -498,7 +777,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginBottom: 10,
+    marginBottom: 14,
   },
   langBtn: {
     flex: 1,
@@ -512,7 +791,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
-  langFlagLarge: {
+  langFlag: {
     fontSize: 22,
   },
   langBtnLabel: {
@@ -539,23 +818,195 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  directionRow: {
+  modeRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 14,
+  },
+  modeBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 11,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    backgroundColor: Colors.card,
+  },
+  modeBtnText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: Colors.textSecondary,
+  },
+
+  interactCard: {
+    backgroundColor: Colors.card,
+    borderRadius: 16,
+    padding: 18,
+    alignItems: "center",
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    gap: 12,
+  },
+  modeContext: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    fontWeight: "600",
+  },
+  micWrapper: {
+    marginVertical: 4,
+  },
+  micOuter: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.background,
+    borderWidth: 2,
+    borderColor: Colors.cardBorder,
+  },
+  micBtn: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  statusText: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+    fontWeight: "500",
+  },
+  noSpeechBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    backgroundColor: Colors.background,
+    borderRadius: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    alignSelf: "stretch",
+  },
+  noSpeechText: {
+    flex: 1,
+    fontSize: 12,
+    color: Colors.textSecondary,
+    lineHeight: 18,
+  },
+  errorBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: Colors.accentSecondary + "18",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: Colors.accentSecondary + "44",
+    alignSelf: "stretch",
+  },
+  errorText: {
+    fontSize: 12,
+    color: Colors.accentSecondary,
+    flex: 1,
+    lineHeight: 17,
+  },
+  resultArea: {
+    alignSelf: "stretch",
+    gap: 6,
+  },
+  resultRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  resultLangTag: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: Colors.background,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  resultLangText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: Colors.textSecondary,
+  },
+  transcriptText: {
+    fontSize: 15,
+    color: Colors.textSecondary,
+    lineHeight: 22,
+    fontWeight: "500",
+  },
+  translationCard: {
+    marginTop: 4,
+    backgroundColor: ACCENT_TRAVEL_DIM,
+    borderWidth: 1,
+    borderColor: ACCENT_TRAVEL_BORDER,
+    borderRadius: 14,
+    padding: 14,
+    gap: 10,
+    alignSelf: "stretch",
+  },
+  translationCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  showToThemBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: ACCENT_TRAVEL + "25",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  showToThemText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: ACCENT_TRAVEL,
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+  },
+  translationTextLarge: {
+    fontSize: 22,
+    color: Colors.text,
+    lineHeight: 30,
+    fontWeight: "800",
+    letterSpacing: -0.3,
+  },
+  speakBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    backgroundColor: Colors.card,
-    borderRadius: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: Colors.cardBorder,
+    backgroundColor: ACCENT_TRAVEL,
+    borderRadius: 12,
+    paddingVertical: 13,
+    alignSelf: "stretch",
   },
-  directionText: {
+  speakBtnText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#fff",
+  },
+  processingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  processingText: {
     fontSize: 13,
     color: Colors.textSecondary,
-    fontWeight: "600",
   },
 
   typeSection: {
@@ -621,29 +1072,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "700",
     color: ACCENT_TRAVEL,
-  },
-  showToThemBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: ACCENT_TRAVEL + "25",
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  showToThemText: {
-    fontSize: 10,
-    fontWeight: "700",
-    color: ACCENT_TRAVEL,
-    letterSpacing: 0.3,
-    textTransform: "uppercase",
-  },
-  typeResultText: {
-    fontSize: 22,
-    color: Colors.text,
-    lineHeight: 30,
-    fontWeight: "800",
-    letterSpacing: -0.3,
   },
   typeSpeakBtn: {
     flexDirection: "row",
@@ -819,9 +1247,6 @@ const styles = StyleSheet.create({
   },
   langRowActive: {
     backgroundColor: ACCENT_TRAVEL_DIM,
-  },
-  langFlag: {
-    fontSize: 22,
   },
   langLabel: {
     fontSize: 15,
