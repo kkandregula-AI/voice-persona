@@ -130,13 +130,17 @@ function HistoryItem({
       }
       setIsPlaying(false);
     }
-    if (Platform.OS !== "web") {
+    if (Platform.OS === "web") {
+      if (typeof window !== "undefined" && window.confirm("Remove this entry from history?")) {
+        onDelete();
+      }
+    } else {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      Alert.alert("Delete Entry", "Remove this entry from history?", [
+        { text: "Cancel", style: "cancel" },
+        { text: "Delete", style: "destructive", onPress: onDelete },
+      ]);
     }
-    Alert.alert("Delete Entry", "Remove this entry from history?", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Delete", style: "destructive", onPress: onDelete },
-    ]);
   };
 
   return (
@@ -221,19 +225,23 @@ export default function HistoryScreen() {
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
   const handleClearAll = () => {
-    Alert.alert("Clear History", "Delete all history entries?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Clear All",
-        style: "destructive",
-        onPress: () => {
-          if (Platform.OS !== "web") {
+    if (Platform.OS === "web") {
+      if (typeof window !== "undefined" && window.confirm("Delete all history entries?")) {
+        clearHistory();
+      }
+    } else {
+      Alert.alert("Clear History", "Delete all history entries?", [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Clear All",
+          style: "destructive",
+          onPress: () => {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-          }
-          clearHistory();
+            clearHistory();
+          },
         },
-      },
-    ]);
+      ]);
+    }
   };
 
   const activeTab = TABS.find((t) => t.key === tab)!;
