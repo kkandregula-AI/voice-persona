@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -303,8 +303,18 @@ export default function TravelTalkScreen() {
   const [typeInput, setTypeInput] = useState("");
   const [typeTranslation, setTypeTranslation] = useState("");
   const [typeLoading, setTypeLoading] = useState(false);
+  const [speechSupported, setSpeechSupported] = useState(true);
 
   const stopRecognitionRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      const w = window as unknown as { SpeechRecognition?: unknown; webkitSpeechRecognition?: unknown };
+      setSpeechSupported(!!(w.SpeechRecognition || w.webkitSpeechRecognition));
+    } else {
+      setSpeechSupported(false);
+    }
+  }, []);
 
   const sourceLang = mode === "speak" ? myLang : theirLang;
   const targetLang = mode === "speak" ? theirLang : myLang;
@@ -344,7 +354,10 @@ export default function TravelTalkScreen() {
         try {
           const result = await translateText(text, sourceLang.code, targetLang.code);
           setTranslation(result);
-          setStatus("idle");
+          setStatus("speaking");
+          speakText(result, targetLang.code);
+          const speakMs = Math.max(3000, result.length * 75);
+          setTimeout(() => setStatus("idle"), speakMs);
           const entry: ConvEntry = {
             id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
             speaker: mode === "speak" ? "you" : "them",
@@ -535,14 +548,28 @@ export default function TravelTalkScreen() {
           </Text>
 
           {/* Mic button */}
-          <Pressable onPress={handleMicPress} style={styles.micWrapper} disabled={status === "processing"}>
+          <Pressable
+            onPress={handleMicPress}
+            style={[styles.micWrapper, !speechSupported && { opacity: 0.35 }]}
+            disabled={status === "processing" || !speechSupported}
+          >
             <PulsingMic status={status} />
           </Pressable>
 
           {/* Status */}
           <Text style={[styles.statusText, status === "listening" && { color: ACCENT_TRAVEL }, status === "processing" && { color: Colors.accentSecondary }]}>
-            {statusLabel}
+            {speechSupported ? statusLabel : "Voice not supported"}
           </Text>
+
+          {/* iOS / unsupported browser notice */}
+          {!speechSupported && (
+            <Animated.View entering={FadeInUp} style={styles.noSpeechBanner}>
+              <Feather name="info" size={13} color={Colors.textSecondary} />
+              <Text style={styles.noSpeechText}>
+                Voice input requires Chrome on Android or desktop.{"\n"}Use <Text style={{ color: ACCENT_TRAVEL, fontWeight: "700" }}>Type to Translate</Text> below — it works on all devices.
+              </Text>
+            </Animated.View>
+          )}
 
           {/* Error */}
           {!!error && (
@@ -563,20 +590,26 @@ export default function TravelTalkScreen() {
               <Text style={styles.transcriptText}>{transcript}</Text>
 
               {!!translation && (
-                <>
-                  <View style={[styles.resultRow, { marginTop: 14 }]}>
+                <Animated.View entering={FadeInDown} style={styles.translationCard}>
+                  <View style={styles.translationCardHeader}>
                     <View style={[styles.resultLangTag, { backgroundColor: ACCENT_TRAVEL_DIM, borderColor: ACCENT_TRAVEL_BORDER }]}>
-                      <Text style={[styles.resultLangText, { color: ACCENT_TRAVEL }]}>{targetLang.flag} Translation</Text>
+                      <Text style={[styles.resultLangText, { color: ACCENT_TRAVEL }]}>
+                        {targetLang.flag} {targetLang.label}
+                      </Text>
+                    </View>
+                    <View style={styles.showToThemBadge}>
+                      <Feather name="eye" size={11} color={ACCENT_TRAVEL} />
+                      <Text style={styles.showToThemText}>
+                        {mode === "speak" ? "Show to them" : "Your translation"}
+                      </Text>
                     </View>
                   </View>
-                  <Text style={styles.translationText}>{translation}</Text>
+                  <Text style={styles.translationTextLarge}>{translation}</Text>
                   <Pressable onPress={handleSpeak} style={styles.speakBtn}>
                     <Feather name="volume-2" size={15} color="#fff" />
-                    <Text style={styles.speakBtnText}>
-                      {mode === "speak" ? "Speak Translation" : "Read Aloud"}
-                    </Text>
+                    <Text style={styles.speakBtnText}>Speak Again</Text>
                   </Pressable>
-                </>
+                </Animated.View>
               )}
             </Animated.View>
           )}
@@ -875,6 +908,43 @@ const styles = StyleSheet.create({
     lineHeight: 26,
     fontWeight: "700",
   },
+  translationCard: {
+    marginTop: 14,
+    backgroundColor: ACCENT_TRAVEL_DIM,
+    borderWidth: 1,
+    borderColor: ACCENT_TRAVEL_BORDER,
+    borderRadius: 14,
+    padding: 14,
+    gap: 10,
+  },
+  translationCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  showToThemBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: ACCENT_TRAVEL + "25",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  showToThemText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: ACCENT_TRAVEL,
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+  },
+  translationTextLarge: {
+    fontSize: 22,
+    color: Colors.text,
+    lineHeight: 30,
+    fontWeight: "800",
+    letterSpacing: -0.3,
+  },
   speakBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -1143,5 +1213,22 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: ACCENT_TRAVEL,
     fontWeight: "600",
+  },
+  noSpeechBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    backgroundColor: Colors.card,
+    borderRadius: 10,
+    padding: 12,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: Colors.border ?? "#1E1E2E",
+  },
+  noSpeechText: {
+    flex: 1,
+    fontSize: 12,
+    color: Colors.textSecondary,
+    lineHeight: 18,
   },
 });
