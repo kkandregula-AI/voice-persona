@@ -3,12 +3,20 @@ import { Tabs } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import React from "react";
 import { Platform, StyleSheet, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Colors } from "@/constants/colors";
 
 export default function TabLayout() {
   const isIOS = Platform.OS === "ios";
   const isWeb = Platform.OS === "web";
+  const insets = useSafeAreaInsets();
+
+  const bottomInset = insets.bottom ?? 0;
+  const minBottom = isWeb ? 16 : 20;
+  const safeBottom = Math.max(bottomInset, minBottom);
+  const TAB_CONTENT_HEIGHT = 60;
+  const tabBarHeight = TAB_CONTENT_HEIGHT + safeBottom;
 
   return (
     <Tabs
@@ -22,8 +30,8 @@ export default function TabLayout() {
           borderTopWidth: 1,
           borderTopColor: Colors.cardBorder,
           elevation: 0,
-          height: isWeb ? 64 : 82,
-          paddingBottom: isWeb ? 8 : 24,
+          height: tabBarHeight,
+          paddingBottom: safeBottom,
           paddingTop: 8,
         },
         tabBarLabelStyle: {

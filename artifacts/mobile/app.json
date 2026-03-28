@@ -41,6 +41,11 @@
         "image": "./assets/images/icon.png",
         "resizeMode": "contain",
         "backgroundColor": "#050508"
+      },
+      "meta": {
+        "viewport": {
+          "content": "width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1.00001,viewport-fit=cover"
+        }
       }
     },
     "plugins": [
