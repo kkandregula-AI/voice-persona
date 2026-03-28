@@ -77,13 +77,36 @@ function getApiBase(): string {
 
 async function translateText(
   text: string,
-  fromLang: string,
-  toLang: string
+  fromCode: string,
+  toCode: string
 ): Promise<string> {
+  const from = fromCode.split("-")[0];
+  const to = toCode.split("-")[0];
+
+  // Primary: MyMemory (free, no key, instant)
+  try {
+    const mmRes = await fetch(
+      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${from}|${to}`
+    );
+    if (mmRes.ok) {
+      const mmData = (await mmRes.json()) as {
+        responseStatus: number;
+        responseData?: { translatedText?: string };
+      };
+      const translated = mmData.responseData?.translatedText ?? "";
+      if (mmData.responseStatus === 200 && translated && translated !== text) {
+        return translated;
+      }
+    }
+  } catch {
+    // fall through to AI
+  }
+
+  // Fallback: AI server
   const res = await fetch(`${getApiBase()}/ai/translate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text, fromLang, toLang }),
+    body: JSON.stringify({ text, fromLang: fromCode, toLang: toCode }),
   });
   const data = (await res.json()) as { translation?: string; error?: string };
   if (!res.ok) throw new Error(data.error ?? "Translation failed");
@@ -315,7 +338,7 @@ export default function TravelTalkScreen() {
         setTranscript(text);
         setStatus("processing");
         try {
-          const result = await translateText(text, sourceLang.name, targetLang.name);
+          const result = await translateText(text, sourceLang.code, targetLang.code);
           setTranslation(result);
           setStatus("idle");
           const entry: ConvEntry = {
@@ -357,7 +380,7 @@ export default function TravelTalkScreen() {
     setTranslation("");
     setStatus("processing");
     try {
-      const result = await translateText(phrase, myLang.name, theirLang.name);
+      const result = await translateText(phrase, myLang.code, theirLang.code);
       setTranslation(result);
       setStatus("idle");
       const entry: ConvEntry = {
