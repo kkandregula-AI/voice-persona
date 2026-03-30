@@ -108,26 +108,30 @@ function speakText(text: string, langCode: string) {
   window.speechSynthesis.speak(utterance);
 }
 
-// Ask for mic permission explicitly and release it immediately so iOS Safari
-// frees the hardware for SpeechRecognition. Called fresh before each recording.
-async function requestMicPermission(): Promise<boolean> {
-  if (Platform.OS !== "web" || typeof navigator === "undefined") return false;
+// Get a live mic stream — the stream stays OPEN so iOS audio session is actively
+// in "Record" mode when SpeechRecognition starts. We stop it inside recognition.onstart.
+async function acquireMicStream(): Promise<MediaStream | null> {
+  if (Platform.OS !== "web" || typeof navigator === "undefined") return null;
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    stream.getTracks().forEach((t) => t.stop());
-    return true;
+    return await navigator.mediaDevices.getUserMedia({ audio: true });
   } catch {
-    return false;
+    return null;
   }
+}
+
+function stopStream(stream: MediaStream | null) {
+  if (stream) stream.getTracks().forEach((t) => t.stop());
 }
 
 function startSpeechRecognition(
   langCode: string,
+  micStream: MediaStream | null,
   onResult: (text: string) => void,
   onEnd: () => void,
   onError: (msg: string) => void
 ): (() => void) | null {
   if (Platform.OS !== "web" || typeof window === "undefined") {
+    stopStream(micStream);
     onError("Speech recognition is only available in a web browser.");
     return null;
   }
@@ -136,6 +140,7 @@ function startSpeechRecognition(
       .SpeechRecognition ||
     (window as unknown as { webkitSpeechRecognition?: new () => SpeechRecognition }).webkitSpeechRecognition;
   if (!SR) {
+    stopStream(micStream);
     onError("Voice input isn't supported in this browser. Use Chrome on Android or desktop, or type below.");
     return null;
   }
@@ -144,18 +149,26 @@ function startSpeechRecognition(
   recognition.continuous = false;
   recognition.interimResults = false;
   recognition.maxAlternatives = 1;
+  // onstart: SpeechRecognition has taken over the audio session — release our stream.
+  // Keeping the stream alive until this moment ensures iOS has an active "Record"
+  // audio session ready, which prevents the silent failure on the second mode use.
+  recognition.onstart = () => { stopStream(micStream); };
   recognition.onresult = (e: SpeechRecognitionEvent) => {
     const text = e.results[0]?.[0]?.transcript ?? "";
     if (text.trim()) onResult(text.trim());
   };
   recognition.onend = onEnd;
   recognition.onerror = (e: SpeechRecognitionErrorEvent) => {
+    stopStream(micStream);
     if (e.error === "no-speech") onError("No speech detected. Try again.");
     else if (e.error === "not-allowed") onError("Microphone access denied. Please allow mic in browser settings.");
     else onError(`Recognition error: ${e.error}`);
   };
   recognition.start();
-  return () => { try { recognition.abort(); } catch {} };
+  return () => {
+    stopStream(micStream);
+    try { recognition.abort(); } catch {}
+  };
 }
 
 function LangPickerModal({
@@ -361,23 +374,21 @@ export default function TravelTalkScreen() {
     }
     if (status === "processing" || status === "speaking") return;
 
-    // Cancel any ongoing speech synthesis first — iOS won't give the mic to
+    // Cancel any ongoing speech synthesis — iOS won't give the mic to
     // SpeechRecognition while the audio session is occupied by speech output.
     if (typeof window !== "undefined" && window.speechSynthesis) {
       window.speechSynthesis.cancel();
     }
 
-    // Request mic permission explicitly each time — iOS Safari requires a fresh
-    // getUserMedia grant before SpeechRecognition can access the hardware.
-    const micAllowed = await requestMicPermission();
-    if (!micAllowed) {
+    // Acquire a live mic stream. We keep it OPEN and pass it to startSpeechRecognition,
+    // which releases it inside recognition.onstart — this is the iOS "warm handoff":
+    // the audio session is already in Record mode when SpeechRecognition takes over,
+    // so iOS doesn't silently fail on the second mode use.
+    const micStream = await acquireMicStream();
+    if (!micStream) {
       setError("Microphone access denied. Please allow mic and try again.");
       return;
     }
-
-    // Brief pause so iOS fully releases the audio session from getUserMedia
-    // before SpeechRecognition tries to acquire it.
-    await new Promise<void>((resolve) => setTimeout(resolve, 350));
 
     setTranscript("");
     setTranslation("");
@@ -400,6 +411,7 @@ export default function TravelTalkScreen() {
 
     const stop = startSpeechRecognition(
       sourceLang.code,
+      micStream,
       async (text) => {
         clearListenTimeout();
         setTranscript(text);
