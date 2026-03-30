@@ -152,9 +152,11 @@ function startSpeechRecognition(
   recognition.interimResults = false;
   recognition.maxAlternatives = 1;
 
-  // Set new handlers and call start() inside the delay — by then any async
-  // events from the abort() have already fired and been silently swallowed.
-  const t = setTimeout(() => {
+  // Only wire up onresult / onend / onerror AFTER onstart fires.
+  // This means any spurious onend events during the permission prompt or
+  // audio-session negotiation are silently ignored — they arrive before
+  // onstart so our real handlers aren't set yet and nothing fires.
+  recognition.onstart = () => {
     recognition.onresult = (e: SpeechRecognitionEvent) => {
       const text = e.results[0]?.[0]?.transcript ?? "";
       if (text.trim()) onResult(text.trim());
@@ -166,6 +168,9 @@ function startSpeechRecognition(
       else if (e.error === "aborted") { /* intentional — ignore */ }
       else onError(`Recognition error: ${e.error}`);
     };
+  };
+
+  const t = setTimeout(() => {
     try { recognition.start(); } catch { onError("Could not start voice recognition. Tap to try again."); }
   }, 200);
 
