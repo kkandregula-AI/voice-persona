@@ -298,6 +298,14 @@ export default function TravelTalkScreen() {
   const [speechSupported, setSpeechSupported] = useState(true);
 
   const stopRecognitionRef = useRef<(() => void) | null>(null);
+  const listenTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearListenTimeout = () => {
+    if (listenTimeoutRef.current) {
+      clearTimeout(listenTimeoutRef.current);
+      listenTimeoutRef.current = null;
+    }
+  };
 
   // On mount: check speech support and pre-request mic permission so the
   // browser remembers the grant and never prompts mid-session.
@@ -318,6 +326,7 @@ export default function TravelTalkScreen() {
   // Stop any active recognition when the user switches between Speak Out and Listen Back.
   // This prevents orphaned recognition instances from holding state across mode changes.
   useEffect(() => {
+    clearListenTimeout();
     if (stopRecognitionRef.current) {
       stopRecognitionRef.current();
       stopRecognitionRef.current = null;
@@ -348,6 +357,7 @@ export default function TravelTalkScreen() {
   const handleMicPress = useCallback(async () => {
     setError("");
     if (status === "listening") {
+      clearListenTimeout();
       stopRecognitionRef.current?.();
       stopRecognitionRef.current = null;
       setStatus("idle");
@@ -359,9 +369,25 @@ export default function TravelTalkScreen() {
     setTranslation("");
     setStatus("listening");
 
+    // Safety net: iOS Safari sometimes never fires onend. If we are still
+    // in "listening" state after 12 seconds, force-abort and reset.
+    listenTimeoutRef.current = setTimeout(() => {
+      listenTimeoutRef.current = null;
+      stopRecognitionRef.current?.();
+      stopRecognitionRef.current = null;
+      setStatus((prev) => {
+        if (prev === "listening") {
+          setError("No speech detected. Tap the mic and try again.");
+          return "idle";
+        }
+        return prev;
+      });
+    }, 12000);
+
     const stop = startSpeechRecognition(
       sourceLang.code,
       async (text) => {
+        clearListenTimeout();
         setTranscript(text);
         setStatus("processing");
         try {
@@ -389,9 +415,11 @@ export default function TravelTalkScreen() {
       () => {
         // Use functional update to always read the latest status value,
         // avoiding the stale closure bug where status reads as "idle" (pre-setStatus call).
+        clearListenTimeout();
         setStatus((prev) => (prev === "listening" ? "idle" : prev));
       },
       (msg) => {
+        clearListenTimeout();
         setError(msg);
         setStatus("idle");
       }
