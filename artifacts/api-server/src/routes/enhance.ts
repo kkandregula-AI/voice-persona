@@ -161,6 +161,28 @@ Rules:
   }
 });
 
+function toLangCode(bcp47: string): string {
+  // Google Translate uses short codes (e.g. "ko" not "ko-KR", "ja" not "ja-JP")
+  // but accepts zh-TW, zh-CN as-is. Strip region for most languages.
+  const keep = new Set(["zh-TW", "zh-CN", "zh-HK"]);
+  if (keep.has(bcp47)) return bcp47;
+  return bcp47.split("-")[0];
+}
+
+async function googleTranslate(text: string, fromLang: string, toLang: string): Promise<string> {
+  const sl = toLangCode(fromLang);
+  const tl = toLangCode(toLang);
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sl}&tl=${tl}&dt=t&q=${encodeURIComponent(text)}`;
+  const resp = await fetch(url, { signal: AbortSignal.timeout(4000) });
+  if (!resp.ok) throw new Error(`Google Translate HTTP ${resp.status}`);
+  const data = await resp.json() as unknown[][];
+  // Response is nested arrays: [[["translated","original",null,null,10],...],...]
+  const parts = (data[0] as unknown[][]).map((item) => (item as unknown[])[0] as string).filter(Boolean);
+  const result = parts.join("").trim();
+  if (!result) throw new Error("Empty translation result");
+  return result;
+}
+
 router.post("/ai/translate", async (req, res) => {
   try {
     const { text, fromLang, toLang } = req.body as { text?: string; fromLang?: string; toLang?: string };
@@ -172,10 +194,18 @@ router.post("/ai/translate", async (req, res) => {
       return res.status(400).json({ error: "fromLang and toLang are required" });
     }
 
-    const systemPrompt = `You are a professional interpreter. Translate the following text from ${fromLang} to ${toLang}. Output ONLY the translated text — no explanations, no alternatives, no notes. Preserve the original meaning, tone, and register.`;
+    // Primary: Google Translate unofficial API — fast (~100ms), free, no key needed
+    try {
+      const translation = await googleTranslate(text.trim(), fromLang, toLang);
+      return res.json({ translation, source: "google" });
+    } catch (gErr) {
+      console.warn("Google Translate failed, falling back to OpenRouter:", gErr instanceof Error ? gErr.message : gErr);
+    }
 
+    // Fallback: OpenRouter LLM — slower but handles edge cases
+    const systemPrompt = `You are a professional interpreter. Translate the following text from ${fromLang} to ${toLang}. Output ONLY the translated text — no explanations, no alternatives, no notes.`;
     const translation = await callOpenRouter(systemPrompt, text.trim());
-    return res.json({ translation });
+    return res.json({ translation, source: "ai" });
   } catch (err) {
     console.error("translate error:", err);
     const msg = err instanceof Error ? err.message : "Translation failed";

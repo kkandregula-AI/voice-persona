@@ -81,45 +81,15 @@ async function translateText(
   fromCode: string,
   toCode: string
 ): Promise<string> {
-  const from = fromCode.split("-")[0];
-  const to = toCode.split("-")[0];
-
-  // Primary: AI server (best quality for conversational text)
-  try {
-    const aiRes = await fetch(`${getApiBase()}/ai/translate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, fromLang: fromCode, toLang: toCode }),
-    });
-    if (aiRes.ok) {
-      const aiData = (await aiRes.json()) as { translation?: string };
-      if (aiData.translation) return aiData.translation;
-    }
-  } catch {
-    // fall through to MyMemory
-  }
-
-  // Fallback: MyMemory — only accept high-confidence matches (score >= 0.8)
-  try {
-    const mmRes = await fetch(
-      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${from}|${to}`
-    );
-    if (mmRes.ok) {
-      const mmData = (await mmRes.json()) as {
-        responseStatus: number;
-        responseData?: { translatedText?: string; match?: number };
-      };
-      const translated = mmData.responseData?.translatedText ?? "";
-      const match = mmData.responseData?.match ?? 0;
-      if (mmData.responseStatus === 200 && translated && translated !== text && match >= 0.8) {
-        return translated;
-      }
-    }
-  } catch {
-    // fall through to error
-  }
-
-  throw new Error("Translation unavailable. Please try again.");
+  const res = await fetch(`${getApiBase()}/ai/translate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, fromLang: fromCode, toLang: toCode }),
+  });
+  const data = (await res.json()) as { translation?: string; error?: string };
+  if (!res.ok) throw new Error(data.error ?? "Translation failed");
+  if (!data.translation) throw new Error("Translation unavailable. Please try again.");
+  return data.translation;
 }
 
 function speakText(text: string, langCode: string) {
