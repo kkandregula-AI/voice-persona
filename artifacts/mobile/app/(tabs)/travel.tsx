@@ -315,6 +315,19 @@ export default function TravelTalkScreen() {
     }
   }, []);
 
+  // Stop any active recognition when the user switches between Speak Out and Listen Back.
+  // This prevents orphaned recognition instances from holding state across mode changes.
+  useEffect(() => {
+    if (stopRecognitionRef.current) {
+      stopRecognitionRef.current();
+      stopRecognitionRef.current = null;
+    }
+    setStatus("idle");
+    setTranscript("");
+    setTranslation("");
+    setError("");
+  }, [mode]);
+
   const sourceLang = mode === "speak" ? myLang : theirLang;
   const targetLang = mode === "speak" ? theirLang : myLang;
   const statusLabel =
@@ -374,7 +387,9 @@ export default function TravelTalkScreen() {
         }
       },
       () => {
-        if (status === "listening") setStatus("idle");
+        // Use functional update to always read the latest status value,
+        // avoiding the stale closure bug where status reads as "idle" (pre-setStatus call).
+        setStatus((prev) => (prev === "listening" ? "idle" : prev));
       },
       (msg) => {
         setError(msg);
