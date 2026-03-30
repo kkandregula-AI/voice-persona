@@ -316,13 +316,16 @@ export default function TravelTalkScreen() {
     }
   }, []);
 
-  // Stop any active recognition when the user switches between Speak Out and Listen Back.
-  // This prevents orphaned recognition instances from holding state across mode changes.
+  // Stop any active recognition and speech when the user switches between modes.
   useEffect(() => {
     clearListenTimeout();
     if (stopRecognitionRef.current) {
       stopRecognitionRef.current();
       stopRecognitionRef.current = null;
+    }
+    // Cancel ongoing speech synthesis so it doesn't hold the iOS audio session
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
     }
     setStatus("idle");
     setTranscript("");
@@ -358,6 +361,12 @@ export default function TravelTalkScreen() {
     }
     if (status === "processing" || status === "speaking") return;
 
+    // Cancel any ongoing speech synthesis first — iOS won't give the mic to
+    // SpeechRecognition while the audio session is occupied by speech output.
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+
     // Request mic permission explicitly each time — iOS Safari requires a fresh
     // getUserMedia grant before SpeechRecognition can access the hardware.
     const micAllowed = await requestMicPermission();
@@ -365,6 +374,10 @@ export default function TravelTalkScreen() {
       setError("Microphone access denied. Please allow mic and try again.");
       return;
     }
+
+    // Brief pause so iOS fully releases the audio session from getUserMedia
+    // before SpeechRecognition tries to acquire it.
+    await new Promise<void>((resolve) => setTimeout(resolve, 350));
 
     setTranscript("");
     setTranslation("");
