@@ -1,0 +1,58 @@
+[
+  {
+    "id": "9f61f7eb-1ace-47f3-b8d5-9d5413e1282a",
+    "position": 1,
+    "filepath": "src/pages/slides/TitleSlide.tsx",
+    "title": "Voice Persona AI",
+    "description": "Opening title slide — cinematic hero with app tagline and Buildathon badge.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "2b3c4d5e-6f7a-8b9c-0d1e-2f3a4b5c6d7e",
+    "position": 2,
+    "filepath": "src/pages/slides/ProblemSlide.tsx",
+    "title": "The Problem",
+    "description": "Three core pain points: voiceover editing time, language barriers, and generic AI voices.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "3c4d5e6f-7a8b-9c0d-1e2f-3a4b5c6d7e8f",
+    "position": 3,
+    "filepath": "src/pages/slides/SolutionSlide.tsx",
+    "title": "The Solution",
+    "description": "Three pillars: Voice Cloning, Persona Engine, and Travel Talk.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "4d5e6f7a-8b9c-0d1e-2f3a-4b5c6d7e8f9a",
+    "position": 4,
+    "filepath": "src/pages/slides/FeaturesSlide.tsx",
+    "title": "Studio Features",
+    "description": "Four key features: ElevenLabs clone, AI Reel Generator, Emotion Engine, Waveform + History.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "5e6f7a8b-9c0d-1e2f-3a4b-5c6d7e8f9a0b",
+    "position": 5,
+    "filepath": "src/pages/slides/TravelTalkSlide.tsx",
+    "title": "Travel Talk",
+    "description": "Week 2 hero feature — real-time AI translation across 18 languages with voice and text input.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "6f7a8b9c-0d1e-2f3a-4b5c-6d7e8f9a0b1c",
+    "position": 6,
+    "filepath": "src/pages/slides/BuildSlide.tsx",
+    "title": "Week 2 + Tech Stack",
+    "description": "What was shipped in Week 2 and the full technology stack.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "7a8b9c0d-1e2f-3a4b-5c6d-7e8f9a0b1c2d",
+    "position": 7,
+    "filepath": "src/pages/slides/ClosingSlide.tsx",
+    "title": "Try It Now",
+    "description": "Closing slide with live URL and key metrics.",
+    "speakerNotes": ""
+  }
+]
