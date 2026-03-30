@@ -108,10 +108,8 @@ function speakText(text: string, langCode: string) {
   window.speechSynthesis.speak(utterance);
 }
 
-// iOS Safari bug: creating a new webkitSpeechRecognition instance after the first
-// one has been used results in a silent zombie — it appears to start but captures
-// nothing. The fix is to create ONE instance and reuse it across all sessions,
-// calling abort() + reassigning handlers before each new recording.
+// Single persistent SpeechRecognition instance — creating new ones after the
+// first use produces silent zombies on iOS Safari.
 let _sharedSR: SpeechRecognition | null = null;
 
 function getSharedRecognition(): SpeechRecognition | null {
@@ -138,9 +136,7 @@ function startSpeechRecognition(
     return null;
   }
 
-  // IMPORTANT: null ALL handlers BEFORE calling abort().
-  // abort() fires onend asynchronously — if the old onend handler is still set,
-  // it resets status back to "idle" while we're in "listening", which disables the mic UI.
+  // Wipe all handlers first, then abort. Any async events from abort fire into null.
   recognition.onstart = null;
   recognition.onresult = null;
   recognition.onend = null;
@@ -152,22 +148,18 @@ function startSpeechRecognition(
   recognition.interimResults = false;
   recognition.maxAlternatives = 1;
 
-  // Only wire up onresult / onend / onerror AFTER onstart fires.
-  // This means any spurious onend events during the permission prompt or
-  // audio-session negotiation are silently ignored — they arrive before
-  // onstart so our real handlers aren't set yet and nothing fires.
-  recognition.onstart = () => {
-    recognition.onresult = (e: SpeechRecognitionEvent) => {
-      const text = e.results[0]?.[0]?.transcript ?? "";
-      if (text.trim()) onResult(text.trim());
-    };
-    recognition.onend = onEnd;
-    recognition.onerror = (e: SpeechRecognitionErrorEvent) => {
-      if (e.error === "no-speech") onError("No speech detected. Try again.");
-      else if (e.error === "not-allowed") onError("Microphone access denied. Please allow mic in browser settings.");
-      else if (e.error === "aborted") { /* intentional — ignore */ }
-      else onError(`Recognition error: ${e.error}`);
-    };
+  // NOTE: callbacks passed here already contain session-ID guards (set in
+  // handleMicPress). They will silently no-op if a newer session has started.
+  recognition.onresult = (e: SpeechRecognitionEvent) => {
+    const text = e.results[0]?.[0]?.transcript ?? "";
+    if (text.trim()) onResult(text.trim());
+  };
+  recognition.onend = onEnd;
+  recognition.onerror = (e: SpeechRecognitionErrorEvent) => {
+    if (e.error === "aborted") return; // intentional stop
+    if (e.error === "no-speech") onError("No speech detected. Try again.");
+    else if (e.error === "not-allowed") onError("Microphone access denied. Please allow mic in browser settings.");
+    else onError(`Recognition error: ${e.error}`);
   };
 
   const t = setTimeout(() => {
@@ -324,6 +316,9 @@ export default function TravelTalkScreen() {
 
   const stopRecognitionRef = useRef<(() => void) | null>(null);
   const listenTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Each mic-tap gets a unique session ID. Callbacks check this before touching
+  // state — if iOS fires stale events from a previous session they're ignored.
+  const sessionRef = useRef(0);
 
   const clearListenTimeout = () => {
     if (listenTimeoutRef.current) {
@@ -344,12 +339,12 @@ export default function TravelTalkScreen() {
 
   // Stop any active recognition and speech when the user switches between modes.
   useEffect(() => {
+    sessionRef.current++; // invalidate any in-flight callbacks from the old mode
     clearListenTimeout();
     if (stopRecognitionRef.current) {
       stopRecognitionRef.current();
       stopRecognitionRef.current = null;
     }
-    // Cancel ongoing speech synthesis so it doesn't hold the iOS audio session
     if (typeof window !== "undefined" && window.speechSynthesis) {
       window.speechSynthesis.cancel();
     }
@@ -379,6 +374,7 @@ export default function TravelTalkScreen() {
   const handleMicPress = useCallback(async () => {
     setError("");
     if (status === "listening") {
+      sessionRef.current++;           // invalidate current session
       clearListenTimeout();
       stopRecognitionRef.current?.();
       stopRecognitionRef.current = null;
@@ -387,19 +383,23 @@ export default function TravelTalkScreen() {
     }
     if (status === "processing" || status === "speaking") return;
 
-    // Cancel any ongoing speech synthesis — iOS won't give the mic to
-    // SpeechRecognition while the audio session is occupied by speech output.
     if (typeof window !== "undefined" && window.speechSynthesis) {
       window.speechSynthesis.cancel();
     }
+
+    // Stamp this session — any callback that checks this and finds a different
+    // value knows it is stale and should do nothing.
+    const sid = ++sessionRef.current;
 
     setTranscript("");
     setTranslation("");
     setStatus("listening");
 
-    // Safety net: if we are still in "listening" after 15 seconds, force-abort.
+    // Safety net: force-reset after 15 s if iOS never fires any events.
     listenTimeoutRef.current = setTimeout(() => {
       listenTimeoutRef.current = null;
+      if (sessionRef.current !== sid) return;
+      sessionRef.current++;
       stopRecognitionRef.current?.();
       stopRecognitionRef.current = null;
       setStatus((prev) => {
@@ -414,16 +414,20 @@ export default function TravelTalkScreen() {
     const stop = startSpeechRecognition(
       sourceLang.code,
       async (text) => {
+        if (sessionRef.current !== sid) return;   // stale — ignore
         clearListenTimeout();
         setTranscript(text);
         setStatus("processing");
         try {
           const result = await translateText(text, sourceLang.code, targetLang.code);
+          if (sessionRef.current !== sid) return; // stale after async gap
           setTranslation(result);
           setStatus("speaking");
           speakText(result, targetLang.code);
           const speakMs = Math.max(3000, result.length * 75);
-          setTimeout(() => setStatus("idle"), speakMs);
+          setTimeout(() => {
+            if (sessionRef.current === sid) setStatus("idle");
+          }, speakMs);
           const entry: ConvEntry = {
             id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
             speaker: mode === "speak" ? "you" : "them",
@@ -435,17 +439,18 @@ export default function TravelTalkScreen() {
           };
           setConversation((prev) => [entry, ...prev].slice(0, 30));
         } catch (err) {
+          if (sessionRef.current !== sid) return;
           setError(err instanceof Error ? err.message : "Translation failed");
           setStatus("idle");
         }
       },
       () => {
-        // Use functional update to always read the latest status value,
-        // avoiding the stale closure bug where status reads as "idle" (pre-setStatus call).
+        if (sessionRef.current !== sid) return;   // stale — ignore
         clearListenTimeout();
         setStatus((prev) => (prev === "listening" ? "idle" : prev));
       },
       (msg) => {
+        if (sessionRef.current !== sid) return;   // stale — ignore
         clearListenTimeout();
         setError(msg);
         setStatus("idle");
