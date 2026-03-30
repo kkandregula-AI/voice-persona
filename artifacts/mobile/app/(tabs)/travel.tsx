@@ -108,17 +108,13 @@ function speakText(text: string, langCode: string) {
   window.speechSynthesis.speak(utterance);
 }
 
-// Request mic permission once so the browser remembers the grant.
-// We immediately stop the tracks after getting permission — holding the stream
-// open conflicts with iOS Safari's SpeechRecognition which needs exclusive mic access.
-let micPermissionGranted = false;
-async function ensureMicPermission(): Promise<boolean> {
+// Ask for mic permission explicitly and release it immediately so iOS Safari
+// frees the hardware for SpeechRecognition. Called fresh before each recording.
+async function requestMicPermission(): Promise<boolean> {
   if (Platform.OS !== "web" || typeof navigator === "undefined") return false;
-  if (micPermissionGranted) return true;
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    stream.getTracks().forEach((t) => t.stop()); // Release hardware immediately
-    micPermissionGranted = true;
+    stream.getTracks().forEach((t) => t.stop());
     return true;
   } catch {
     return false;
@@ -310,17 +306,11 @@ export default function TravelTalkScreen() {
     }
   };
 
-  // On mount: check speech support and pre-request mic permission so the
-  // browser remembers the grant and never prompts mid-session.
+  // On mount: check whether the browser supports Web Speech API.
   useEffect(() => {
     if (Platform.OS === "web" && typeof window !== "undefined") {
       const w = window as unknown as { SpeechRecognition?: unknown; webkitSpeechRecognition?: unknown };
-      const supported = !!(w.SpeechRecognition || w.webkitSpeechRecognition);
-      setSpeechSupported(supported);
-      if (supported) {
-        // Silently request permission upfront — no repeated prompts later
-        ensureMicPermission();
-      }
+      setSpeechSupported(!!(w.SpeechRecognition || w.webkitSpeechRecognition));
     } else {
       setSpeechSupported(false);
     }
@@ -367,6 +357,14 @@ export default function TravelTalkScreen() {
       return;
     }
     if (status === "processing" || status === "speaking") return;
+
+    // Request mic permission explicitly each time — iOS Safari requires a fresh
+    // getUserMedia grant before SpeechRecognition can access the hardware.
+    const micAllowed = await requestMicPermission();
+    if (!micAllowed) {
+      setError("Microphone access denied. Please allow mic and try again.");
+      return;
+    }
 
     setTranscript("");
     setTranslation("");
