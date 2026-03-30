@@ -108,14 +108,17 @@ function speakText(text: string, langCode: string) {
   window.speechSynthesis.speak(utterance);
 }
 
-// Request mic permission once and hold the stream so the browser
-// remembers the grant and never prompts again during the session.
-let micStreamCache: MediaStream | null = null;
+// Request mic permission once so the browser remembers the grant.
+// We immediately stop the tracks after getting permission — holding the stream
+// open conflicts with iOS Safari's SpeechRecognition which needs exclusive mic access.
+let micPermissionGranted = false;
 async function ensureMicPermission(): Promise<boolean> {
   if (Platform.OS !== "web" || typeof navigator === "undefined") return false;
-  if (micStreamCache) return true;
+  if (micPermissionGranted) return true;
   try {
-    micStreamCache = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach((t) => t.stop()); // Release hardware immediately
+    micPermissionGranted = true;
     return true;
   } catch {
     return false;
