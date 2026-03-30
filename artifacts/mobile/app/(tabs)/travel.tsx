@@ -138,37 +138,43 @@ function startSpeechRecognition(
     return null;
   }
 
-  // Abort any previous session and wipe handlers so stale callbacks can't fire.
-  try { recognition.abort(); } catch {}
+  // IMPORTANT: null ALL handlers BEFORE calling abort().
+  // abort() fires onend asynchronously — if the old onend handler is still set,
+  // it resets status back to "idle" while we're in "listening", which disables the mic UI.
   recognition.onstart = null;
   recognition.onresult = null;
   recognition.onend = null;
   recognition.onerror = null;
+  try { recognition.abort(); } catch {}
 
   recognition.lang = langCode;
   recognition.continuous = false;
   recognition.interimResults = false;
   recognition.maxAlternatives = 1;
 
-  recognition.onresult = (e: SpeechRecognitionEvent) => {
-    const text = e.results[0]?.[0]?.transcript ?? "";
-    if (text.trim()) onResult(text.trim());
-  };
-  recognition.onend = onEnd;
-  recognition.onerror = (e: SpeechRecognitionErrorEvent) => {
-    if (e.error === "no-speech") onError("No speech detected. Try again.");
-    else if (e.error === "not-allowed") onError("Microphone access denied. Please allow mic in browser settings.");
-    else if (e.error === "aborted") { /* intentional abort — ignore */ }
-    else onError(`Recognition error: ${e.error}`);
-  };
-
-  // Small delay after abort() so iOS fully resets internal state before start().
+  // Set new handlers and call start() inside the delay — by then any async
+  // events from the abort() have already fired and been silently swallowed.
   const t = setTimeout(() => {
+    recognition.onresult = (e: SpeechRecognitionEvent) => {
+      const text = e.results[0]?.[0]?.transcript ?? "";
+      if (text.trim()) onResult(text.trim());
+    };
+    recognition.onend = onEnd;
+    recognition.onerror = (e: SpeechRecognitionErrorEvent) => {
+      if (e.error === "no-speech") onError("No speech detected. Try again.");
+      else if (e.error === "not-allowed") onError("Microphone access denied. Please allow mic in browser settings.");
+      else if (e.error === "aborted") { /* intentional — ignore */ }
+      else onError(`Recognition error: ${e.error}`);
+    };
     try { recognition.start(); } catch { onError("Could not start voice recognition. Tap to try again."); }
-  }, 150);
+  }, 200);
 
   return () => {
     clearTimeout(t);
+    recognition.onstart = null;
+    recognition.onresult = null;
+    recognition.onend = null;
+    recognition.onerror = null;
     try { recognition.abort(); } catch {}
   };
 }
