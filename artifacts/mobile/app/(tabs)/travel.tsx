@@ -108,6 +108,34 @@ function speakText(text: string, langCode: string) {
   window.speechSynthesis.speak(utterance);
 }
 
+// ─── iOS detection ───────────────────────────────────────────────────────────
+// On iOS (iPhone/iPad) all browsers use WebKit's SpeechRecognition which breaks
+// on the 2nd session. We use MediaRecorder + server-side Whisper instead.
+function isIOSBrowser(): boolean {
+  if (Platform.OS !== "web" || typeof navigator === "undefined") return false;
+  return (
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+  );
+}
+
+function getBestMimeType(): string {
+  if (typeof MediaRecorder === "undefined") return "";
+  const types = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm", "audio/ogg"];
+  return types.find((t) => MediaRecorder.isTypeSupported(t)) ?? "";
+}
+
+async function transcribeAudio(blob: Blob, langCode: string): Promise<string> {
+  const form = new FormData();
+  form.append("audio", blob, "recording.audio");
+  form.append("language", langCode.split("-")[0] ?? "");
+  const res = await fetch(`${getApiBase()}/ai/transcribe`, { method: "POST", body: form });
+  const data = (await res.json()) as { text?: string; error?: string };
+  if (!res.ok) throw new Error(data.error ?? "Transcription failed");
+  return data.text ?? "";
+}
+
+// ─── Web Speech API (Android / Desktop only) ─────────────────────────────────
 // Single persistent SpeechRecognition instance — creating new ones after the
 // first use produces silent zombies on iOS Safari.
 let _sharedSR: SpeechRecognition | null = null;
@@ -316,9 +344,12 @@ export default function TravelTalkScreen() {
 
   const stopRecognitionRef = useRef<(() => void) | null>(null);
   const listenTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Each mic-tap gets a unique session ID. Callbacks check this before touching
-  // state — if iOS fires stale events from a previous session they're ignored.
   const sessionRef = useRef(0);
+  // iOS MediaRecorder refs
+  const iosRecorderRef = useRef<MediaRecorder | null>(null);
+  const iosStreamRef = useRef<MediaStream | null>(null);
+  const iosChunksRef = useRef<Blob[]>([]);
+  const [onIOS] = useState(() => isIOSBrowser());
 
   const clearListenTimeout = () => {
     if (listenTimeoutRef.current) {
@@ -337,14 +368,25 @@ export default function TravelTalkScreen() {
     }
   }, []);
 
-  // Stop any active recognition and speech when the user switches between modes.
+  // Stop any active recognition/recording and speech when switching modes.
   useEffect(() => {
-    sessionRef.current++; // invalidate any in-flight callbacks from the old mode
+    sessionRef.current++; // invalidate all in-flight callbacks immediately
     clearListenTimeout();
+    // Web Speech API path
     if (stopRecognitionRef.current) {
       stopRecognitionRef.current();
       stopRecognitionRef.current = null;
     }
+    // iOS MediaRecorder path — onstop fires but session check kills it
+    if (iosRecorderRef.current) {
+      try { iosRecorderRef.current.stop(); } catch {}
+      iosRecorderRef.current = null;
+    }
+    if (iosStreamRef.current) {
+      iosStreamRef.current.getTracks().forEach((t) => t.stop());
+      iosStreamRef.current = null;
+    }
+    iosChunksRef.current = [];
     if (typeof window !== "undefined" && window.speechSynthesis) {
       window.speechSynthesis.cancel();
     }
@@ -357,10 +399,10 @@ export default function TravelTalkScreen() {
   const sourceLang = mode === "speak" ? myLang : theirLang;
   const targetLang = mode === "speak" ? theirLang : myLang;
   const statusLabel =
-    status === "listening" ? (mode === "speak" ? "Listening to you…" : "Listening to them…") :
-    status === "processing" ? "Translating…" :
+    status === "listening" ? (onIOS ? "Recording… Tap again to stop" : mode === "speak" ? "Listening to you…" : "Listening to them…") :
+    status === "processing" ? (onIOS ? "Transcribing…" : "Translating…") :
     status === "speaking" ? "Speaking translation…" :
-    mode === "speak" ? "Tap to speak" : "Tap to listen";
+    mode === "speak" ? (onIOS ? "Tap to record" : "Tap to speak") : (onIOS ? "Tap to record them" : "Tap to listen");
 
   const handleSwap = () => {
     setMyLang(theirLang);
@@ -371,31 +413,132 @@ export default function TravelTalkScreen() {
     setTypeTranslation("");
   };
 
+  // Shared helper: translate text and update conversation (used by both paths)
+  const handleTranscript = useCallback(async (text: string, sid: number) => {
+    if (sessionRef.current !== sid) return;
+    setTranscript(text);
+    setStatus("processing");
+    try {
+      const result = await translateText(text, sourceLang.code, targetLang.code);
+      if (sessionRef.current !== sid) return;
+      setTranslation(result);
+      setStatus("speaking");
+      speakText(result, targetLang.code);
+      const speakMs = Math.max(3000, result.length * 75);
+      setTimeout(() => { if (sessionRef.current === sid) setStatus("idle"); }, speakMs);
+      setConversation((prev) => [
+        {
+          id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+          speaker: (mode === "speak" ? "you" : "them") as "you" | "them",
+          original: text,
+          translated: result,
+          originalLang: sourceLang.label,
+          translatedLang: targetLang.label,
+          timestamp: Date.now(),
+        },
+        ...prev,
+      ].slice(0, 30));
+    } catch (err) {
+      if (sessionRef.current !== sid) return;
+      setError(err instanceof Error ? err.message : "Translation failed");
+      setStatus("idle");
+    }
+  }, [sourceLang, targetLang, mode]);
+
   const handleMicPress = useCallback(async () => {
     setError("");
-    if (status === "listening") {
-      sessionRef.current++;           // invalidate current session
-      clearListenTimeout();
-      stopRecognitionRef.current?.();
-      stopRecognitionRef.current = null;
-      setStatus("idle");
-      return;
-    }
     if (status === "processing" || status === "speaking") return;
 
     if (typeof window !== "undefined" && window.speechSynthesis) {
       window.speechSynthesis.cancel();
     }
 
-    // Stamp this session — any callback that checks this and finds a different
-    // value knows it is stale and should do nothing.
-    const sid = ++sessionRef.current;
+    // ── iOS path: MediaRecorder push-to-talk ─────────────────────────────────
+    if (onIOS) {
+      if (status === "listening") {
+        // Second tap: stop recording — onstop will transcribe
+        sessionRef.current++;
+        const sid = sessionRef.current;
+        const recorder = iosRecorderRef.current;
+        const stream = iosStreamRef.current;
+        const chunks = [...iosChunksRef.current];
+        iosRecorderRef.current = null;
+        iosStreamRef.current = null;
+        iosChunksRef.current = [];
+        setStatus("processing");
+        try { recorder?.stop(); } catch {}
+        // Stop tracks immediately
+        stream?.getTracks().forEach((t) => t.stop());
+        // Wait 500 ms before transcribing (lets audio flush)
+        await new Promise<void>((r) => setTimeout(r, 500));
+        if (sessionRef.current !== sid) return;
+        if (!chunks.length) {
+          setError("No audio captured. Tap and speak, then tap again to stop.");
+          setStatus("idle");
+          return;
+        }
+        const mimeType = chunks[0]?.type || getBestMimeType();
+        const blob = new Blob(chunks, { type: mimeType });
+        try {
+          const text = await transcribeAudio(blob, sourceLang.code);
+          if (sessionRef.current !== sid) return;
+          if (!text.trim()) {
+            setError("No speech detected. Tap the mic and try again.");
+            setStatus("idle");
+            return;
+          }
+          await handleTranscript(text.trim(), sid);
+        } catch (err) {
+          if (sessionRef.current !== sid) return;
+          setError(err instanceof Error ? err.message : "Transcription failed");
+          setStatus("idle");
+        }
+        return;
+      }
 
+      // First tap: start recording
+      const mimeType = getBestMimeType();
+      if (!mimeType) {
+        setError("Audio recording is not supported in this browser.");
+        return;
+      }
+      const sid = ++sessionRef.current;
+      setTranscript("");
+      setTranslation("");
+      setStatus("listening");
+      try {
+        // Fresh getUserMedia every turn (user's spec)
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        if (sessionRef.current !== sid) { stream.getTracks().forEach((t) => t.stop()); return; }
+        iosStreamRef.current = stream;
+        iosChunksRef.current = [];
+        const recorder = new MediaRecorder(stream, { mimeType });
+        iosRecorderRef.current = recorder;
+        recorder.ondataavailable = (e) => { if (e.data.size > 0) iosChunksRef.current.push(e.data); };
+        recorder.start(250);
+      } catch {
+        if (sessionRef.current !== sid) return;
+        setStatus("idle");
+        setError("Microphone access denied. Please allow mic and try again.");
+      }
+      return;
+    }
+
+    // ── Android / Desktop path: Web Speech API ───────────────────────────────
+    if (status === "listening") {
+      sessionRef.current++;
+      clearListenTimeout();
+      stopRecognitionRef.current?.();
+      stopRecognitionRef.current = null;
+      setStatus("idle");
+      return;
+    }
+
+    const sid = ++sessionRef.current;
     setTranscript("");
     setTranslation("");
     setStatus("listening");
 
-    // Safety net: force-reset after 15 s if iOS never fires any events.
     listenTimeoutRef.current = setTimeout(() => {
       listenTimeoutRef.current = null;
       if (sessionRef.current !== sid) return;
@@ -403,10 +546,7 @@ export default function TravelTalkScreen() {
       stopRecognitionRef.current?.();
       stopRecognitionRef.current = null;
       setStatus((prev) => {
-        if (prev === "listening") {
-          setError("No speech detected. Tap the mic and try again.");
-          return "idle";
-        }
+        if (prev === "listening") { setError("No speech detected. Tap the mic and try again."); return "idle"; }
         return prev;
       });
     }, 15000);
@@ -414,50 +554,24 @@ export default function TravelTalkScreen() {
     const stop = startSpeechRecognition(
       sourceLang.code,
       async (text) => {
-        if (sessionRef.current !== sid) return;   // stale — ignore
+        if (sessionRef.current !== sid) return;
         clearListenTimeout();
-        setTranscript(text);
-        setStatus("processing");
-        try {
-          const result = await translateText(text, sourceLang.code, targetLang.code);
-          if (sessionRef.current !== sid) return; // stale after async gap
-          setTranslation(result);
-          setStatus("speaking");
-          speakText(result, targetLang.code);
-          const speakMs = Math.max(3000, result.length * 75);
-          setTimeout(() => {
-            if (sessionRef.current === sid) setStatus("idle");
-          }, speakMs);
-          const entry: ConvEntry = {
-            id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
-            speaker: mode === "speak" ? "you" : "them",
-            original: text,
-            translated: result,
-            originalLang: sourceLang.label,
-            translatedLang: targetLang.label,
-            timestamp: Date.now(),
-          };
-          setConversation((prev) => [entry, ...prev].slice(0, 30));
-        } catch (err) {
-          if (sessionRef.current !== sid) return;
-          setError(err instanceof Error ? err.message : "Translation failed");
-          setStatus("idle");
-        }
+        await handleTranscript(text, sid);
       },
       () => {
-        if (sessionRef.current !== sid) return;   // stale — ignore
+        if (sessionRef.current !== sid) return;
         clearListenTimeout();
         setStatus((prev) => (prev === "listening" ? "idle" : prev));
       },
       (msg) => {
-        if (sessionRef.current !== sid) return;   // stale — ignore
+        if (sessionRef.current !== sid) return;
         clearListenTimeout();
         setError(msg);
         setStatus("idle");
       }
     );
     stopRecognitionRef.current = stop;
-  }, [status, sourceLang, targetLang, mode]);
+  }, [status, sourceLang, targetLang, mode, onIOS, handleTranscript]);
 
   const handleSpeak = () => {
     if (!translation) return;
