@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -17,6 +17,24 @@ import Animated, { FadeInDown, FadeInUp, useAnimatedStyle, useSharedValue, withR
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Colors } from "@/constants/colors";
+import { DetailScreen } from "@/components/DetailScreen";
+import { MemoryScreen } from "@/components/MemoryScreen";
+import {
+  type ConversationSession,
+  type SavedPhrase,
+  type SessionMessage,
+  createNewSession,
+  deletePhrase,
+  deleteSession,
+  exportSessionText,
+  loadSavedPhrases,
+  loadSessions,
+  pinSession,
+  renameSession,
+  setSessionInsights,
+  upsertPhrase,
+  upsertSession,
+} from "@/utils/travelStorage";
 
 const ACCENT_TRAVEL = "#10B981";
 const ACCENT_TRAVEL_DIM = "#10B98122";
@@ -393,6 +411,17 @@ export default function TravelTalkScreen() {
   // ID of the most-recently added card (for flash highlight)
   const [liveHighlightId, setLiveHighlightId] = useState<string | null>(null);
 
+  // ─── Session / memory state ───────────────────────────────────────────────
+  const [allSessions, setAllSessions] = useState<ConversationSession[]>([]);
+  const [currentSession, setCurrentSession] = useState<ConversationSession | null>(null);
+  const currentSessionRef = useRef<ConversationSession | null>(null);
+  const [subview, setSubview] = useState<"main" | "memory" | "detail">("main");
+  const [detailSessionId, setDetailSessionId] = useState<string | null>(null);
+  const [memorySearch, setMemorySearch] = useState("");
+  const [savedPhrases, setSavedPhrases] = useState<SavedPhrase[]>([]);
+  const [insightsLoading, setInsightsLoading] = useState(false);
+  const [insightsError, setInsightsError] = useState("");
+
   const clearListenTimeout = () => {
     if (listenTimeoutRef.current) {
       clearTimeout(listenTimeoutRef.current);
@@ -453,6 +482,75 @@ export default function TravelTalkScreen() {
     setTranslation("");
     setError("");
   }, [mode, stopLiveCaptions]);
+
+  // Derived: which session to show in the detail screen
+  const detailSession = useMemo(
+    () => allSessions.find((s) => s.id === detailSessionId) ?? null,
+    [allSessions, detailSessionId]
+  );
+
+  // Load all sessions and create initial session on mount
+  useEffect(() => {
+    const sessions = loadSessions();
+    setAllSessions(sessions);
+    setSavedPhrases(loadSavedPhrases());
+    const sess = createNewSession(
+      LANGUAGES[0]!.label, LANGUAGES[1]!.label,
+      LANGUAGES[0]!.code, LANGUAGES[1]!.code,
+      "speak"
+    );
+    currentSessionRef.current = sess;
+    setCurrentSession(sess);
+    upsertSession(sess);
+    setAllSessions(loadSessions());
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Auto-save conversation + live lines to active session whenever they change
+  useEffect(() => {
+    const session = currentSessionRef.current;
+    if (!session) return;
+
+    const convMsgs: SessionMessage[] = conversation.map((e) => ({
+      id: e.id,
+      speaker: e.speaker,
+      original: e.original,
+      translated: e.translated,
+      timestamp: e.timestamp,
+      direction: (e.speaker === "you" ? "my-to-their" : "their-to-my") as SessionMessage["direction"],
+    }));
+
+    const liveMsgs: SessionMessage[] = liveLines
+      .filter((l) => !l.translating && l.translated && !l.translated.startsWith("⚠"))
+      .map((l) => ({
+        id: l.id,
+        speaker: l.speaker,
+        original: l.original,
+        translated: l.translated,
+        timestamp: l.timestamp,
+        direction: (l.speaker === "you" ? "my-to-their" : "their-to-my") as SessionMessage["direction"],
+        confidence: l.confidence,
+      }));
+
+    const allMsgs = [...convMsgs, ...liveMsgs].sort((a, b) => a.timestamp - b.timestamp);
+    if (!allMsgs.length && !session.messages.length) return;
+
+    const updated: ConversationSession = {
+      ...session,
+      messages: allMsgs,
+      mode,
+      srcLang: myLang.label,
+      tgtLang: theirLang.label,
+      srcCode: myLang.code,
+      tgtCode: theirLang.code,
+      updatedAt: Date.now(),
+    };
+    currentSessionRef.current = updated;
+    setCurrentSession(updated);
+    upsertSession(updated);
+    setAllSessions(loadSessions());
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversation, liveLines]);
 
   const sourceLang = mode === "speak" ? myLang : theirLang;
   const targetLang = mode === "speak" ? theirLang : myLang;
@@ -835,6 +933,124 @@ export default function TravelTalkScreen() {
     }
   }, [liveRunning, myLang, theirLang, startLiveCaptions, stopLiveCaptions]);
 
+  // ─── Session management handlers ─────────────────────────────────────────
+  const handleNewSession = useCallback(() => {
+    const sess = createNewSession(
+      myLang.label, theirLang.label,
+      myLang.code, theirLang.code,
+      mode
+    );
+    currentSessionRef.current = sess;
+    upsertSession(sess);
+    setCurrentSession(sess);
+    setAllSessions(loadSessions());
+    setConversation([]);
+    setLiveLines([]);
+    setTranscript("");
+    setTranslation("");
+    setLiveInterim("");
+    setTypeTranslation("");
+    setError("");
+  }, [myLang, theirLang, mode]);
+
+  const handleDeleteSession = useCallback((id: string) => {
+    deleteSession(id);
+    setAllSessions(loadSessions());
+    setDetailSessionId((prev) => {
+      if (prev === id) { setSubview("memory"); return null; }
+      return prev;
+    });
+  }, []);
+
+  const handleRenameSession = useCallback((id: string) => {
+    const title = typeof window !== "undefined" ? window.prompt("Rename conversation:") : null;
+    if (title?.trim()) {
+      renameSession(id, title.trim());
+      setAllSessions(loadSessions());
+      if (currentSessionRef.current?.id === id) {
+        const t = title.trim();
+        setCurrentSession((prev) => prev ? { ...prev, title: t } : prev);
+        if (currentSessionRef.current) currentSessionRef.current.title = t;
+      }
+    }
+  }, []);
+
+  const handleOpenDetail = useCallback((id: string) => {
+    setDetailSessionId(id);
+    setInsightsError("");
+    setSubview("detail");
+  }, []);
+
+  const handleExportSession = useCallback((session: ConversationSession) => {
+    const text = exportSessionText(session);
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(text).catch(() => {});
+    }
+    if (typeof document !== "undefined") {
+      const blob = new Blob([text], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `travel-talk-${session.id}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  }, []);
+
+  const handleGenerateInsights = useCallback(async (session: ConversationSession) => {
+    if (!session.messages.length) return;
+    setInsightsLoading(true);
+    setInsightsError("");
+    try {
+      const res = await fetch(`${getApiBase()}/ai/insights`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: session.messages,
+          srcLang: session.srcLang,
+          tgtLang: session.tgtLang,
+        }),
+      });
+      const data = await res.json() as { summary?: string; keyPhrases?: string[]; topic?: string; totalExchanges?: number; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Insights failed");
+      const insights = {
+        summary: data.summary ?? "",
+        keyPhrases: data.keyPhrases ?? [],
+        topic: data.topic ?? "Travel",
+        totalExchanges: data.totalExchanges ?? 0,
+      };
+      setSessionInsights(session.id, insights);
+      setAllSessions(loadSessions());
+    } catch (err) {
+      setInsightsError(err instanceof Error ? err.message : "Failed to generate insights");
+    } finally {
+      setInsightsLoading(false);
+    }
+  }, []);
+
+  const handleSavePhrase = useCallback((msg: SessionMessage, srcLang: string, tgtLang: string) => {
+    const phrase: SavedPhrase = {
+      id: msg.id + "_phrase",
+      original: msg.original,
+      translated: msg.translated,
+      srcLang,
+      tgtLang,
+      createdAt: Date.now(),
+    };
+    upsertPhrase(phrase);
+    setSavedPhrases(loadSavedPhrases());
+  }, []);
+
+  const handleDeletePhrase = useCallback((phraseId: string) => {
+    deletePhrase(phraseId);
+    setSavedPhrases(loadSavedPhrases());
+  }, []);
+
+  const handlePinSession = useCallback((id: string, isPinned: boolean) => {
+    pinSession(id, !isPinned);
+    setAllSessions(loadSessions());
+  }, []);
+
   const handleTypeTranslate = async () => {
     const text = typeInput.trim();
     if (!text || typeLoading) return;
@@ -863,6 +1079,39 @@ export default function TravelTalkScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: topPad }]}>
+      {subview === "memory" && (
+        <MemoryScreen
+          sessions={allSessions}
+          searchQuery={memorySearch}
+          onSearch={setMemorySearch}
+          onOpen={handleOpenDetail}
+          onDelete={handleDeleteSession}
+          onRename={handleRenameSession}
+          onExport={handleExportSession}
+          onPin={handlePinSession}
+          onBack={() => setSubview("main")}
+          topPad={topPad}
+        />
+      )}
+      {subview === "detail" && !!detailSession && (
+        <DetailScreen
+          session={detailSession}
+          savedPhrases={savedPhrases}
+          onBack={() => setSubview("memory")}
+          onDelete={handleDeleteSession}
+          onExport={handleExportSession}
+          onGenerateInsights={handleGenerateInsights}
+          onSavePhrase={handleSavePhrase}
+          onDeleteSavedPhrase={handleDeletePhrase}
+          insightsLoading={insightsLoading}
+          insightsError={insightsError}
+          topPad={topPad}
+          speakFn={speakText}
+          srcCode={detailSession.srcCode}
+          tgtCode={detailSession.tgtCode}
+        />
+      )}
+      {subview === "main" && (<>
       <LangPickerModal
         visible={showMyPicker}
         selected={myLang}
@@ -915,6 +1164,31 @@ export default function TravelTalkScreen() {
             </View>
             <Feather name="chevron-down" size={14} color={Colors.textTertiary} style={{ marginLeft: "auto" }} />
           </Pressable>
+        </View>
+
+        {/* Session bar */}
+        <View style={styles.sessionBar}>
+          <View style={styles.sessionInfo}>
+            <View style={[styles.sessionDot, { backgroundColor: ACCENT_TRAVEL }]} />
+            <Text style={styles.sessionTitle} numberOfLines={1}>
+              {currentSession?.title ?? "New Session"}
+            </Text>
+          </View>
+          <View style={styles.sessionActions}>
+            <Pressable style={styles.sessionBtn} onPress={handleNewSession}>
+              <Feather name="plus-circle" size={12} color={Colors.textTertiary} />
+              <Text style={styles.sessionBtnText}>New</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.sessionBtn, { borderColor: ACCENT_TRAVEL_BORDER }]}
+              onPress={() => { setMemorySearch(""); setSubview("memory"); }}
+            >
+              <Feather name="archive" size={12} color={ACCENT_TRAVEL} />
+              <Text style={[styles.sessionBtnText, { color: ACCENT_TRAVEL }]}>
+                {allSessions.length} saved
+              </Text>
+            </Pressable>
+          </View>
         </View>
 
         {/* Mode toggle */}
@@ -1290,8 +1564,21 @@ export default function TravelTalkScreen() {
           </View>
         )}
 
+        {/* Saved Conversations footer */}
+        <Pressable
+          style={styles.memoryFooterBtn}
+          onPress={() => { setMemorySearch(""); setSubview("memory"); }}
+        >
+          <Feather name="archive" size={14} color={ACCENT_TRAVEL} />
+          <Text style={styles.memoryFooterText}>
+            Saved Conversations ({allSessions.filter((s) => s.messages.length > 0).length})
+          </Text>
+          <Feather name="chevron-right" size={14} color={Colors.textTertiary} style={{ marginLeft: "auto" }} />
+        </Pressable>
+
         <View style={{ height: 120 }} />
       </ScrollView>
+      </>)}
     </View>
   );
 }
@@ -2115,5 +2402,78 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
     color: Colors.textSecondary,
+  },
+
+  // ─── Session bar ────────────────────────────────────────────────────────────
+  sessionBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: Colors.card,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    gap: 8,
+  },
+  sessionInfo: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    overflow: "hidden",
+  },
+  sessionDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    flexShrink: 0,
+  },
+  sessionTitle: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: Colors.textSecondary,
+    flex: 1,
+  },
+  sessionActions: {
+    flexDirection: "row",
+    gap: 6,
+  },
+  sessionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: Colors.background,
+    borderRadius: 8,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  sessionBtnText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: Colors.textTertiary,
+  },
+
+  // ─── Memory footer button ────────────────────────────────────────────────────
+  memoryFooterBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: ACCENT_TRAVEL_DIM,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: ACCENT_TRAVEL_BORDER,
+  },
+  memoryFooterText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: ACCENT_TRAVEL,
+    flex: 1,
   },
 });

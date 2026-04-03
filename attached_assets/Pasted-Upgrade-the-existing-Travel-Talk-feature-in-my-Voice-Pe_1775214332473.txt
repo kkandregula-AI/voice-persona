@@ -1,0 +1,235 @@
+Upgrade the existing Travel Talk feature in my Voice Persona AI app by adding persistent Conversation Memory + Insights.
+
+IMPORTANT:
+- Keep the current tabs and existing functionality unchanged
+- Do not remove current Travel Talk modes
+- Extend the current Travel Talk and Live mode experience
+- Conversation history must persist until the user deletes it
+- Use local storage / IndexedDB so saved conversations remain available across app reloads
+
+GOAL:
+Turn Travel Talk into a conversation assistant that not only translates live conversations, but also saves them, organizes them, and generates useful insights for future reference.
+
+==================================================
+1. SAVE CONVERSATIONS PERSISTENTLY
+==================================================
+
+Current issue:
+- Travel Talk live conversation is not saved
+- I want every conversation to be stored for future reference until I manually delete it
+
+Implement:
+- Save each Travel Talk session automatically
+- Persist data locally using IndexedDB or local storage
+- On app reopen, previous conversations must still be visible
+- Each conversation should have:
+  - unique id
+  - created date/time
+  - last updated date/time
+  - source language
+  - target language
+  - mode used (Speak Out / Listen Back / Live)
+  - conversation title
+  - array of conversation messages
+  - optional summary / insights object
+
+Each message should store:
+- speaker label (You / Other Person / System)
+- original text
+- translated text
+- timestamp
+- direction (my language -> their language OR their language -> my language)
+- optional replayable audio text
+
+==================================================
+2. AUTO-CREATE CONVERSATION SESSIONS
+==================================================
+
+When the user starts using Travel Talk:
+- automatically create a new conversation session
+- if the user continues within the same active session, append messages to it
+- allow user to manually start a “New Conversation”
+
+Add:
+- New Conversation button
+- End Conversation button
+- Active Conversation label at top
+
+Conversation title behavior:
+- Auto-generate a simple title like:
+  - “English ↔ Spanish Conversation”
+  - “Travel Talk - Restaurant Help”
+  - “Conversation on 28 Mar, 10:32 AM”
+- Allow user to rename conversation
+
+==================================================
+3. LIVE MODE CONVERSATION FEED
+==================================================
+
+Improve Live mode UI so it behaves like a real conversation feed:
+- append new translated messages in sequence
+- show message cards with:
+  - speaker
+  - original text
+  - translated text
+  - timestamp
+- auto-scroll to latest message
+- highlight new message briefly when added
+
+Keep existing Travel Talk UI style:
+- premium dark theme
+- readable cards
+- clear language labels
+
+==================================================
+4. CONVERSATION MEMORY SCREEN / SECTION
+==================================================
+
+Inside Travel Talk, add a section or subview called:
+- Saved Conversations
+or
+- Conversation Memory
+
+This should show:
+- list of all saved Travel Talk sessions
+- newest first
+- each item should show:
+  - title
+  - languages
+  - number of messages
+  - last updated time
+  - short preview snippet
+
+Actions per conversation:
+- Open
+- Rename
+- Delete
+- Duplicate (optional)
+- Export transcript (optional if easy)
+
+==================================================
+5. CONVERSATION DETAIL VIEW
+==================================================
+
+When user opens a saved conversation:
+- show full conversation thread
+- show all original + translated messages
+- allow scrolling through the full transcript
+- allow replay of translated speech if available
+- allow copy of individual messages
+- allow delete single message (optional)
+- allow delete full conversation
+
+==================================================
+6. CONVERSATION INSIGHTS
+==================================================
+
+Add an Insights section for each saved conversation.
+
+Generate useful insights from saved conversation messages, such as:
+- short conversation summary
+- key phrases used
+- useful translations
+- frequently repeated phrases
+- detected topic or context (restaurant, travel, shopping, help, directions)
+- total number of exchanges
+- languages used
+
+Example output:
+- Summary: “This was a short travel conversation asking for directions in Spanish.”
+- Key Phrases:
+  - “Where is the station?”
+  - “How much does this cost?”
+  - “Thank you”
+- Topic: Directions / Travel
+- Exchanges: 8
+
+If AI summarization is already available in the app, use it.
+If not, create a lightweight summarization/keyword extraction approach.
+
+==================================================
+7. SAVE PHRASES / FAVORITES
+==================================================
+
+Allow user to save specific translated phrases from conversations.
+
+Add:
+- Save Phrase action on each message
+- A Favorites / Saved Phrases section
+
+For each saved phrase, store:
+- original text
+- translated text
+- language pair
+- created time
+- optional tag/category
+
+==================================================
+8. SEARCH AND FILTER
+==================================================
+
+Add search within saved conversations:
+- search by title
+- search by original text
+- search by translated text
+
+Add filters:
+- by language pair
+- by mode
+- by date
+
+==================================================
+9. HISTORY INTEGRATION
+==================================================
+
+If appropriate, integrate Travel Talk saved conversations into the main History tab without breaking current layout.
+
+Recommended:
+- add a category/tag for Travel Talk conversations
+- show them separately from voice generation history
+
+But do not break current History behavior.
+
+==================================================
+10. UX / PRODUCT REQUIREMENTS
+==================================================
+
+Requirements:
+- Keep mobile-first design
+- Keep dark premium UI consistent with the current app
+- Make saved conversation cards clean and easy to browse
+- Persist all data until manually deleted
+- Use clear empty states:
+  - “No saved conversations yet”
+  - “Start a Travel Talk session to save your first conversation”
+
+Important:
+- Do NOT auto-delete older conversations
+- Do NOT lose conversation memory on refresh
+- Do NOT replace current Travel Talk; extend it
+
+==================================================
+11. OPTIONAL NICE-TO-HAVES
+==================================================
+
+If easy, also add:
+- Export transcript as text
+- Pin important conversations
+- Mark favorite conversations
+- Topic tags like restaurant / shopping / directions
+- Resume last active conversation
+- Quick stats dashboard for total conversations saved
+
+==================================================
+12. FINAL GOAL
+==================================================
+
+Travel Talk should evolve from a temporary translator into a persistent conversation memory system.
+
+The user should be able to:
+- translate live conversations
+- save them automatically
+- revisit them later
+- search them
+- learn from them through insights
+- keep them until manually deleted
