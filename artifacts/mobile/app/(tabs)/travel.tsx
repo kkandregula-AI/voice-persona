@@ -56,8 +56,15 @@ const QUICK_PHRASES = [
   "I am lost.",
 ];
 
-type Mode = "speak" | "listen";
+type Mode = "speak" | "listen" | "live";
 type Status = "idle" | "listening" | "processing" | "speaking";
+
+type LiveLine = {
+  id: string;
+  original: string;
+  translated: string;
+  translating: boolean;
+};
 
 type ConvEntry = {
   id: string;
@@ -202,6 +209,19 @@ function startSpeechRecognition(
     recognition.onerror = null;
     try { recognition.abort(); } catch {}
   };
+}
+
+// ─── Live Captions: separate SR instance (continuous = true) ─────────────────
+// Must be separate from _sharedSR because continuous mode conflicts with
+// the single-utterance path. A fresh instance is created on each Start.
+function createLiveSR(): SpeechRecognition | null {
+  if (Platform.OS !== "web" || typeof window === "undefined") return null;
+  const w = window as unknown as {
+    SpeechRecognition?: new () => SpeechRecognition;
+    webkitSpeechRecognition?: new () => SpeechRecognition;
+  };
+  const SR = w.SpeechRecognition || w.webkitSpeechRecognition;
+  return SR ? new SR() : null;
 }
 
 function LangPickerModal({
@@ -351,12 +371,34 @@ export default function TravelTalkScreen() {
   const iosChunksRef = useRef<Blob[]>([]);
   const [onIOS] = useState(() => isIOSBrowser());
 
+  // Live Captions state
+  const [liveLines, setLiveLines] = useState<LiveLine[]>([]);
+  const [liveRunning, setLiveRunning] = useState(false);
+  const [liveInterim, setLiveInterim] = useState("");
+  const liveSRRef = useRef<SpeechRecognition | null>(null);
+  const liveRunningRef = useRef(false); // stable ref for onend restart loop
+  const liveCaptionsScrollRef = useRef<ScrollView>(null);
+
   const clearListenTimeout = () => {
     if (listenTimeoutRef.current) {
       clearTimeout(listenTimeoutRef.current);
       listenTimeoutRef.current = null;
     }
   };
+
+  const stopLiveCaptions = useCallback(() => {
+    liveRunningRef.current = false;
+    setLiveRunning(false);
+    setLiveInterim("");
+    const sr = liveSRRef.current;
+    if (sr) {
+      sr.onresult = null;
+      sr.onend = null;
+      sr.onerror = null;
+      try { sr.abort(); } catch {}
+      liveSRRef.current = null;
+    }
+  }, []);
 
   // On mount: check whether the browser supports Web Speech API.
   useEffect(() => {
@@ -387,6 +429,8 @@ export default function TravelTalkScreen() {
       iosStreamRef.current = null;
     }
     iosChunksRef.current = [];
+    // Live captions path
+    stopLiveCaptions();
     if (typeof window !== "undefined" && window.speechSynthesis) {
       window.speechSynthesis.cancel();
     }
@@ -394,7 +438,7 @@ export default function TravelTalkScreen() {
     setTranscript("");
     setTranslation("");
     setError("");
-  }, [mode]);
+  }, [mode, stopLiveCaptions]);
 
   const sourceLang = mode === "speak" ? myLang : theirLang;
   const targetLang = mode === "speak" ? theirLang : myLang;
@@ -412,6 +456,87 @@ export default function TravelTalkScreen() {
     setError("");
     setTypeTranslation("");
   };
+
+  const startLiveCaptions = useCallback((srcLang: Language, tgtLang: Language) => {
+    const sr = createLiveSR();
+    if (!sr) return;
+
+    liveRunningRef.current = true;
+    setLiveRunning(true);
+    setLiveInterim("");
+    liveSRRef.current = sr;
+
+    sr.lang = srcLang.code;
+    sr.continuous = true;
+    sr.interimResults = true;
+    sr.maxAlternatives = 1;
+
+    sr.onresult = (e: SpeechRecognitionEvent) => {
+      let interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const result = e.results[i];
+        if (!result) continue;
+        const alt = result[0];
+        if (!alt) continue;
+        if (result.isFinal) {
+          const text = alt.transcript.trim();
+          if (!text) continue;
+          const lineId = Date.now().toString() + Math.random().toString(36).substr(2, 5);
+          setLiveLines((prev) => [
+            ...prev,
+            { id: lineId, original: text, translated: "", translating: true },
+          ]);
+          setLiveInterim("");
+          // Translate async and update that specific line
+          translateText(text, srcLang.code, tgtLang.code)
+            .then((translated) => {
+              setLiveLines((prev) =>
+                prev.map((l) => (l.id === lineId ? { ...l, translated, translating: false } : l))
+              );
+              setTimeout(() => {
+                liveCaptionsScrollRef.current?.scrollToEnd({ animated: true });
+              }, 80);
+            })
+            .catch(() => {
+              setLiveLines((prev) =>
+                prev.map((l) => (l.id === lineId ? { ...l, translated: "⚠ Translation error", translating: false } : l))
+              );
+            });
+          // Scroll down for new line
+          setTimeout(() => {
+            liveCaptionsScrollRef.current?.scrollToEnd({ animated: true });
+          }, 50);
+        } else {
+          interim += alt.transcript;
+        }
+      }
+      setLiveInterim(interim);
+    };
+
+    sr.onend = () => {
+      // Auto-restart for continuous captions (browser stops after silence)
+      if (liveRunningRef.current) {
+        setTimeout(() => {
+          if (liveRunningRef.current && liveSRRef.current) {
+            try { liveSRRef.current.start(); } catch {}
+          }
+        }, 150);
+      }
+    };
+
+    sr.onerror = (e: SpeechRecognitionErrorEvent) => {
+      if (e.error === "aborted" || e.error === "no-speech") return; // normal
+      // On real errors: stop gracefully
+      liveRunningRef.current = false;
+      setLiveRunning(false);
+    };
+
+    setTimeout(() => {
+      if (liveRunningRef.current) {
+        try { sr.start(); } catch {}
+      }
+    }, 100);
+  }, []);
 
   // Shared helper: translate text and update conversation (used by both paths)
   const handleTranscript = useCallback(async (text: string, sid: number) => {
@@ -728,9 +853,100 @@ export default function TravelTalkScreen() {
             <Feather name="headphones" size={14} color={mode === "listen" ? Colors.accentSecondary : Colors.textSecondary} />
             <Text style={[styles.modeBtnText, mode === "listen" && { color: Colors.accentSecondary }]}>Listen Back</Text>
           </Pressable>
+          <Pressable
+            style={[styles.modeBtn, mode === "live" && { backgroundColor: "#7C3AED22", borderColor: "#7C3AED" }]}
+            onPress={() => { setMode("live"); setTranscript(""); setTranslation(""); setError(""); }}
+          >
+            <Feather name="radio" size={14} color={mode === "live" ? "#A78BFA" : Colors.textSecondary} />
+            <Text style={[styles.modeBtnText, mode === "live" && { color: "#A78BFA" }]}>Live</Text>
+          </Pressable>
         </View>
 
+        {/* Live Captions panel — only shown in live mode */}
+        {mode === "live" && (
+          <Animated.View entering={FadeInDown} style={styles.livePanel}>
+            {/* Header row */}
+            <View style={styles.liveHeader}>
+              <View style={styles.liveTitleRow}>
+                <View style={[styles.liveDot, liveRunning && styles.liveDotActive]} />
+                <Text style={styles.liveTitle}>Live Captions</Text>
+              </View>
+              <Text style={styles.liveSubtitle}>
+                {myLang.flag} {myLang.label} → {theirLang.flag} {theirLang.label}
+              </Text>
+            </View>
+
+            {/* Captions area */}
+            <ScrollView
+              ref={liveCaptionsScrollRef}
+              style={styles.liveCaptionsScroll}
+              contentContainerStyle={styles.liveCaptionsContent}
+              showsVerticalScrollIndicator={false}
+            >
+              {liveLines.length === 0 && !liveInterim && (
+                <View style={styles.liveEmpty}>
+                  <Feather name="mic" size={28} color="#7C3AED55" />
+                  <Text style={styles.liveEmptyText}>
+                    {liveRunning ? "Listening… speak clearly" : "Tap Start to begin live captioning"}
+                  </Text>
+                </View>
+              )}
+              {liveLines.map((line) => (
+                <View key={line.id} style={styles.liveLineBlock}>
+                  <Text style={styles.liveOriginalText}>{line.original}</Text>
+                  {line.translating ? (
+                    <Text style={styles.liveTranslatingText}>translating…</Text>
+                  ) : (
+                    <Text style={styles.liveTranslatedText}>{line.translated}</Text>
+                  )}
+                </View>
+              ))}
+              {!!liveInterim && (
+                <View style={styles.liveInterimBlock}>
+                  <Text style={styles.liveInterimText}>{liveInterim}</Text>
+                </View>
+              )}
+            </ScrollView>
+
+            {/* Not supported notice */}
+            {!speechSupported && (
+              <View style={styles.liveUnsupported}>
+                <Feather name="info" size={13} color={Colors.textSecondary} />
+                <Text style={styles.liveUnsupportedText}>
+                  Live Captions requires Chrome on Android or desktop.
+                </Text>
+              </View>
+            )}
+
+            {/* Controls */}
+            <View style={styles.liveControls}>
+              <Pressable
+                style={[styles.liveStartBtn, liveRunning && styles.liveStopBtn, !speechSupported && { opacity: 0.4 }]}
+                disabled={!speechSupported}
+                onPress={() => {
+                  if (liveRunning) {
+                    stopLiveCaptions();
+                  } else {
+                    startLiveCaptions(myLang, theirLang);
+                  }
+                }}
+              >
+                <Feather name={liveRunning ? "square" : "play"} size={15} color="#fff" />
+                <Text style={styles.liveStartBtnText}>{liveRunning ? "Stop" : "Start"}</Text>
+              </Pressable>
+              <Pressable
+                style={styles.liveClearBtn}
+                onPress={() => { setLiveLines([]); setLiveInterim(""); }}
+              >
+                <Feather name="trash-2" size={14} color={Colors.textSecondary} />
+                <Text style={styles.liveClearBtnText}>Clear</Text>
+              </Pressable>
+            </View>
+          </Animated.View>
+        )}
+
         {/* Main interaction card */}
+        {mode !== "live" && (
         <View style={styles.interactCard}>
           <Text style={styles.modeContext}>
             {mode === "speak"
@@ -812,6 +1028,7 @@ export default function TravelTalkScreen() {
             </View>
           )}
         </View>
+        )}
 
         {/* Type to Translate */}
         <View style={styles.typeSection}>
@@ -1419,5 +1636,166 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: Colors.text,
     fontWeight: "500",
+  },
+
+  // ── Live Captions ──────────────────────────────────────────────────────────
+  livePanel: {
+    backgroundColor: Colors.card,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#7C3AED44",
+    marginBottom: 12,
+    overflow: "hidden",
+  },
+  liveHeader: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#7C3AED22",
+  },
+  liveTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 4,
+  },
+  liveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: Colors.cardBorder,
+  },
+  liveDotActive: {
+    backgroundColor: "#A78BFA",
+  },
+  liveTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#A78BFA",
+    letterSpacing: -0.2,
+  },
+  liveSubtitle: {
+    fontSize: 11,
+    color: Colors.textSecondary,
+    marginLeft: 16,
+  },
+  liveCaptionsScroll: {
+    height: 340,
+  },
+  liveCaptionsContent: {
+    padding: 16,
+    flexGrow: 1,
+  },
+  liveEmpty: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 60,
+    gap: 12,
+  },
+  liveEmptyText: {
+    fontSize: 14,
+    color: Colors.textTertiary,
+    textAlign: "center",
+    maxWidth: 220,
+    lineHeight: 20,
+  },
+  liveLineBlock: {
+    marginBottom: 18,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#7C3AED15",
+  },
+  liveOriginalText: {
+    fontSize: 20,
+    fontWeight: "600",
+    color: Colors.text,
+    lineHeight: 28,
+    marginBottom: 6,
+  },
+  liveTranslatedText: {
+    fontSize: 17,
+    color: "#A78BFA",
+    lineHeight: 24,
+    fontWeight: "500",
+  },
+  liveTranslatingText: {
+    fontSize: 14,
+    color: Colors.textTertiary,
+    fontStyle: "italic",
+  },
+  liveInterimBlock: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: "#7C3AED11",
+    borderWidth: 1,
+    borderColor: "#7C3AED22",
+    marginBottom: 8,
+  },
+  liveInterimText: {
+    fontSize: 18,
+    color: Colors.textSecondary,
+    lineHeight: 26,
+    fontStyle: "italic",
+  },
+  liveUnsupported: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    margin: 12,
+    padding: 10,
+    borderRadius: 10,
+    backgroundColor: Colors.card,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  liveUnsupportedText: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    flex: 1,
+  },
+  liveControls: {
+    flexDirection: "row",
+    gap: 10,
+    padding: 14,
+    borderTopWidth: 1,
+    borderTopColor: "#7C3AED22",
+  },
+  liveStartBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 13,
+    borderRadius: 12,
+    backgroundColor: "#7C3AED",
+  },
+  liveStopBtn: {
+    backgroundColor: "#DC2626",
+  },
+  liveStartBtnText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#fff",
+  },
+  liveClearBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 13,
+    paddingHorizontal: 18,
+    borderRadius: 12,
+    backgroundColor: Colors.card,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  liveClearBtnText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: Colors.textSecondary,
   },
 });
