@@ -61,9 +61,13 @@ type Status = "idle" | "listening" | "processing" | "speaking";
 
 type LiveLine = {
   id: string;
+  speaker: "you" | "them";
   original: string;
   translated: string;
   translating: boolean;
+  timestamp: number;
+  confidence: number;
+  saved: boolean;
 };
 
 type ConvEntry = {
@@ -376,8 +380,18 @@ export default function TravelTalkScreen() {
   const [liveRunning, setLiveRunning] = useState(false);
   const [liveInterim, setLiveInterim] = useState("");
   const liveSRRef = useRef<SpeechRecognition | null>(null);
-  const liveRunningRef = useRef(false); // stable ref for onend restart loop
+  const liveRunningRef = useRef(false);
   const liveCaptionsScrollRef = useRef<ScrollView>(null);
+  // Speaker toggle — mutable ref keeps the SR callback always in sync
+  const [liveActiveSpeaker, setLiveActiveSpeaker] = useState<"you" | "them">("you");
+  const liveActiveSpeakerRef = useRef<"you" | "them">("you");
+  // Auto-speak translated result via TTS
+  const [liveAutoSpeak, setLiveAutoSpeak] = useState(false);
+  const liveAutoSpeakRef = useRef(false);
+  // tgtLang code needed inside SR callback
+  const liveTgtLangRef = useRef<Language | null>(null);
+  // ID of the most-recently added card (for flash highlight)
+  const [liveHighlightId, setLiveHighlightId] = useState<string | null>(null);
 
   const clearListenTimeout = () => {
     if (listenTimeoutRef.current) {
@@ -461,6 +475,8 @@ export default function TravelTalkScreen() {
     const sr = createLiveSR();
     if (!sr) return;
 
+    // Snapshot tgtLang into ref so onresult callbacks stay in sync with toggle
+    liveTgtLangRef.current = tgtLang;
     liveRunningRef.current = true;
     setLiveRunning(true);
     setLiveInterim("");
@@ -482,30 +498,31 @@ export default function TravelTalkScreen() {
           const text = alt.transcript.trim();
           if (!text) continue;
           const lineId = Date.now().toString() + Math.random().toString(36).substr(2, 5);
+          const confidence = typeof alt.confidence === "number" ? alt.confidence : 1;
+          const speaker = liveActiveSpeakerRef.current;
+          const activeTgt = liveTgtLangRef.current ?? tgtLang;
           setLiveLines((prev) => [
             ...prev,
-            { id: lineId, original: text, translated: "", translating: true },
+            { id: lineId, speaker, original: text, translated: "", translating: true, timestamp: Date.now(), confidence, saved: false },
           ]);
+          setLiveHighlightId(lineId);
+          setTimeout(() => setLiveHighlightId(null), 1400);
           setLiveInterim("");
-          // Translate async and update that specific line
-          translateText(text, srcLang.code, tgtLang.code)
+          translateText(text, srcLang.code, activeTgt.code)
             .then((translated) => {
               setLiveLines((prev) =>
                 prev.map((l) => (l.id === lineId ? { ...l, translated, translating: false } : l))
               );
-              setTimeout(() => {
-                liveCaptionsScrollRef.current?.scrollToEnd({ animated: true });
-              }, 80);
+              // Auto-speak if enabled
+              if (liveAutoSpeakRef.current) speakText(translated, activeTgt.code);
+              setTimeout(() => { liveCaptionsScrollRef.current?.scrollToEnd({ animated: true }); }, 80);
             })
             .catch(() => {
               setLiveLines((prev) =>
                 prev.map((l) => (l.id === lineId ? { ...l, translated: "⚠ Translation error", translating: false } : l))
               );
             });
-          // Scroll down for new line
-          setTimeout(() => {
-            liveCaptionsScrollRef.current?.scrollToEnd({ animated: true });
-          }, 50);
+          setTimeout(() => { liveCaptionsScrollRef.current?.scrollToEnd({ animated: true }); }, 50);
         } else {
           interim += alt.transcript;
         }
@@ -514,7 +531,6 @@ export default function TravelTalkScreen() {
     };
 
     sr.onend = () => {
-      // Auto-restart for continuous captions (browser stops after silence)
       if (liveRunningRef.current) {
         setTimeout(() => {
           if (liveRunningRef.current && liveSRRef.current) {
@@ -525,8 +541,7 @@ export default function TravelTalkScreen() {
     };
 
     sr.onerror = (e: SpeechRecognitionErrorEvent) => {
-      if (e.error === "aborted" || e.error === "no-speech") return; // normal
-      // On real errors: stop gracefully
+      if (e.error === "aborted" || e.error === "no-speech") return;
       liveRunningRef.current = false;
       setLiveRunning(false);
     };
@@ -755,6 +770,71 @@ export default function TravelTalkScreen() {
     }
   };
 
+  // ── Live conversation handlers ─────────────────────────────────────────────
+  const handleLiveReplay = useCallback((line: LiveLine) => {
+    if (!line.translated) return;
+    const lang = line.speaker === "you" ? theirLang.code : myLang.code;
+    speakText(line.translated, lang);
+  }, [myLang, theirLang]);
+
+  const handleLiveSavePhrase = useCallback((lineId: string) => {
+    setLiveLines((prev) => prev.map((l) => l.id === lineId ? { ...l, saved: !l.saved } : l));
+  }, []);
+
+  const handleLiveExport = useCallback(() => {
+    if (!liveLines.length) return;
+    const header = `Live Conversation — ${myLang.label} ↔ ${theirLang.label}\n${new Date().toLocaleString()}\n${"─".repeat(50)}\n\n`;
+    const body = liveLines.map((l) => {
+      const time = new Date(l.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const who = l.speaker === "you" ? "You" : "Other Person";
+      return `[${time}] ${who}\n${l.original}\n→ ${l.translated}`;
+    }).join("\n\n");
+    const text = header + body;
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(text).catch(() => {});
+    }
+    // Also trigger a download
+    if (typeof document !== "undefined") {
+      const blob = new Blob([text], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `live-conversation-${Date.now()}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  }, [liveLines, myLang, theirLang]);
+
+  const handleLiveSpeakerToggle = useCallback(() => {
+    setLiveActiveSpeaker((prev) => {
+      const next = prev === "you" ? "them" : "you";
+      liveActiveSpeakerRef.current = next;
+      return next;
+    });
+  }, []);
+
+  const handleLiveAutoSpeakToggle = useCallback(() => {
+    setLiveAutoSpeak((prev) => {
+      const next = !prev;
+      liveAutoSpeakRef.current = next;
+      return next;
+    });
+  }, []);
+
+  const handleLiveClear = useCallback(() => {
+    setLiveLines([]);
+    setLiveInterim("");
+  }, []);
+
+  const handleLiveToggle = useCallback(() => {
+    if (liveRunning) {
+      stopLiveCaptions();
+    } else {
+      // Update tgtLang ref before starting (handles language changes between sessions)
+      liveTgtLangRef.current = theirLang;
+      startLiveCaptions(myLang, theirLang);
+    }
+  }, [liveRunning, myLang, theirLang, startLiveCaptions, stopLiveCaptions]);
+
   const handleTypeTranslate = async () => {
     const text = typeInput.trim();
     if (!text || typeLoading) return;
@@ -862,21 +942,60 @@ export default function TravelTalkScreen() {
           </Pressable>
         </View>
 
-        {/* Live Captions panel — only shown in live mode */}
+        {/* Live Conversation — only shown in live mode */}
         {mode === "live" && (
           <Animated.View entering={FadeInDown} style={styles.livePanel}>
-            {/* Header row */}
+
+            {/* ─ Header ─────────────────────────────────────────────────────── */}
             <View style={styles.liveHeader}>
               <View style={styles.liveTitleRow}>
                 <View style={[styles.liveDot, liveRunning && styles.liveDotActive]} />
-                <Text style={styles.liveTitle}>Live Captions</Text>
+                <Text style={styles.liveTitle}>Live Conversation</Text>
+                <Text style={styles.liveCount}>{liveLines.length > 0 ? `${liveLines.length} messages` : ""}</Text>
+              </View>
+              <View style={styles.liveHeaderActions}>
+                {/* Auto-speak toggle */}
+                <Pressable
+                  style={[styles.liveToggleChip, liveAutoSpeak && styles.liveToggleChipActive]}
+                  onPress={handleLiveAutoSpeakToggle}
+                >
+                  <Feather name="volume-2" size={11} color={liveAutoSpeak ? "#A78BFA" : Colors.textTertiary} />
+                  <Text style={[styles.liveToggleChipText, liveAutoSpeak && { color: "#A78BFA" }]}>
+                    Auto-speak
+                  </Text>
+                </Pressable>
+                {/* Export */}
+                <Pressable
+                  style={[styles.liveToggleChip, !liveLines.length && { opacity: 0.35 }]}
+                  onPress={handleLiveExport}
+                  disabled={!liveLines.length}
+                >
+                  <Feather name="download" size={11} color={Colors.textTertiary} />
+                  <Text style={styles.liveToggleChipText}>Export</Text>
+                </Pressable>
               </View>
               <Text style={styles.liveSubtitle}>
                 {myLang.flag} {myLang.label} → {theirLang.flag} {theirLang.label}
               </Text>
             </View>
 
-            {/* Captions area */}
+            {/* ─ Speaker toggle bar ─────────────────────────────────────────── */}
+            <View style={styles.liveSpeakerBar}>
+              <Text style={styles.liveSpeakerLabel}>Speaking as:</Text>
+              <Pressable style={styles.liveSpeakerToggle} onPress={handleLiveSpeakerToggle}>
+                <View style={[styles.liveSpeakerPill, liveActiveSpeaker === "you" && styles.liveSpeakerPillYouActive]}>
+                  <Feather name="user" size={11} color={liveActiveSpeaker === "you" ? "#A78BFA" : Colors.textTertiary} />
+                  <Text style={[styles.liveSpeakerPillText, liveActiveSpeaker === "you" && { color: "#A78BFA" }]}>You</Text>
+                </View>
+                <Feather name="repeat" size={12} color={Colors.textTertiary} />
+                <View style={[styles.liveSpeakerPill, liveActiveSpeaker === "them" && styles.liveSpeakerPillThemActive]}>
+                  <Feather name="users" size={11} color={liveActiveSpeaker === "them" ? ACCENT_TRAVEL : Colors.textTertiary} />
+                  <Text style={[styles.liveSpeakerPillText, liveActiveSpeaker === "them" && { color: ACCENT_TRAVEL }]}>Other Person</Text>
+                </View>
+              </Pressable>
+            </View>
+
+            {/* ─ Chat feed ──────────────────────────────────────────────────── */}
             <ScrollView
               ref={liveCaptionsScrollRef}
               style={styles.liveCaptionsScroll}
@@ -885,24 +1004,90 @@ export default function TravelTalkScreen() {
             >
               {liveLines.length === 0 && !liveInterim && (
                 <View style={styles.liveEmpty}>
-                  <Feather name="mic" size={28} color="#7C3AED55" />
+                  <Feather name="message-circle" size={32} color="#7C3AED44" />
                   <Text style={styles.liveEmptyText}>
-                    {liveRunning ? "Listening… speak clearly" : "Tap Start to begin live captioning"}
+                    {liveRunning
+                      ? `Listening as "${liveActiveSpeaker === "you" ? "You" : "Other Person"}"…\nSpeak clearly`
+                      : "Tap Start — then speak.\nToggle who is speaking above."}
                   </Text>
                 </View>
               )}
-              {liveLines.map((line) => (
-                <View key={line.id} style={styles.liveLineBlock}>
-                  <Text style={styles.liveOriginalText}>{line.original}</Text>
-                  {line.translating ? (
-                    <Text style={styles.liveTranslatingText}>translating…</Text>
-                  ) : (
-                    <Text style={styles.liveTranslatedText}>{line.translated}</Text>
-                  )}
-                </View>
-              ))}
+
+              {liveLines.map((line) => {
+                const isYou = line.speaker === "you";
+                const isHighlighted = liveHighlightId === line.id;
+                const time = new Date(line.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+                const lowConfidence = line.confidence > 0 && line.confidence < 0.7;
+                return (
+                  <Animated.View
+                    key={line.id}
+                    entering={FadeInDown.duration(300)}
+                    style={[
+                      styles.liveChatCard,
+                      isYou ? styles.liveChatCardYou : styles.liveChatCardThem,
+                      isHighlighted && styles.liveChatCardHighlight,
+                    ]}
+                  >
+                    {/* Speaker + time */}
+                    <View style={styles.liveChatMeta}>
+                      <View style={styles.liveChatSpeakerRow}>
+                        <Feather
+                          name={isYou ? "user" : "users"}
+                          size={10}
+                          color={isYou ? "#A78BFA" : ACCENT_TRAVEL}
+                        />
+                        <Text style={[styles.liveChatSpeakerText, { color: isYou ? "#A78BFA" : ACCENT_TRAVEL }]}>
+                          {isYou ? "You" : "Other Person"}
+                        </Text>
+                        {lowConfidence && (
+                          <View style={styles.liveConfidenceBadge}>
+                            <Text style={styles.liveConfidenceText}>low confidence</Text>
+                          </View>
+                        )}
+                        {line.saved && (
+                          <Feather name="star" size={10} color="#F59E0B" />
+                        )}
+                      </View>
+                      <Text style={styles.liveChatTime}>{time}</Text>
+                    </View>
+
+                    {/* Original */}
+                    <Text style={styles.liveChatOriginal}>{line.original}</Text>
+
+                    {/* Translation */}
+                    {line.translating ? (
+                      <Text style={styles.liveChatTranslating}>translating…</Text>
+                    ) : (
+                      <Text style={[styles.liveChatTranslated, { color: isYou ? "#C4B5FD" : "#6EE7B7" }]}>
+                        → {line.translated}
+                      </Text>
+                    )}
+
+                    {/* Per-card actions */}
+                    {!line.translating && (
+                      <View style={styles.liveChatActions}>
+                        <Pressable style={styles.liveChatActionBtn} onPress={() => handleLiveReplay(line)}>
+                          <Feather name="volume-2" size={12} color={Colors.textTertiary} />
+                          <Text style={styles.liveChatActionText}>Replay</Text>
+                        </Pressable>
+                        <Pressable style={styles.liveChatActionBtn} onPress={() => handleLiveSavePhrase(line.id)}>
+                          <Feather name={line.saved ? "star" : "bookmark"} size={12} color={line.saved ? "#F59E0B" : Colors.textTertiary} />
+                          <Text style={[styles.liveChatActionText, line.saved && { color: "#F59E0B" }]}>
+                            {line.saved ? "Saved" : "Save"}
+                          </Text>
+                        </Pressable>
+                      </View>
+                    )}
+                  </Animated.View>
+                );
+              })}
+
+              {/* Interim text (what you're saying right now) */}
               {!!liveInterim && (
-                <View style={styles.liveInterimBlock}>
+                <View style={[styles.liveInterimBlock, { borderColor: liveActiveSpeaker === "you" ? "#7C3AED44" : ACCENT_TRAVEL_BORDER }]}>
+                  <Text style={[styles.liveInterimSpeaker, { color: liveActiveSpeaker === "you" ? "#A78BFA" : ACCENT_TRAVEL }]}>
+                    {liveActiveSpeaker === "you" ? "You" : "Other Person"} is speaking…
+                  </Text>
                   <Text style={styles.liveInterimText}>{liveInterim}</Text>
                 </View>
               )}
@@ -913,31 +1098,22 @@ export default function TravelTalkScreen() {
               <View style={styles.liveUnsupported}>
                 <Feather name="info" size={13} color={Colors.textSecondary} />
                 <Text style={styles.liveUnsupportedText}>
-                  Live Captions requires Chrome on Android or desktop.
+                  Live mode requires Chrome on Android or desktop.
                 </Text>
               </View>
             )}
 
-            {/* Controls */}
+            {/* ─ Controls ───────────────────────────────────────────────────── */}
             <View style={styles.liveControls}>
               <Pressable
                 style={[styles.liveStartBtn, liveRunning && styles.liveStopBtn, !speechSupported && { opacity: 0.4 }]}
                 disabled={!speechSupported}
-                onPress={() => {
-                  if (liveRunning) {
-                    stopLiveCaptions();
-                  } else {
-                    startLiveCaptions(myLang, theirLang);
-                  }
-                }}
+                onPress={handleLiveToggle}
               >
                 <Feather name={liveRunning ? "square" : "play"} size={15} color="#fff" />
                 <Text style={styles.liveStartBtnText}>{liveRunning ? "Stop" : "Start"}</Text>
               </Pressable>
-              <Pressable
-                style={styles.liveClearBtn}
-                onPress={() => { setLiveLines([]); setLiveInterim(""); }}
-              >
+              <Pressable style={styles.liveClearBtn} onPress={handleLiveClear}>
                 <Feather name="trash-2" size={14} color={Colors.textSecondary} />
                 <Text style={styles.liveClearBtnText}>Clear</Text>
               </Pressable>
@@ -1638,7 +1814,7 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
 
-  // ── Live Captions ──────────────────────────────────────────────────────────
+  // ── Live Conversation ──────────────────────────────────────────────────────
   livePanel: {
     backgroundColor: Colors.card,
     borderRadius: 16,
@@ -1650,15 +1826,15 @@ const styles = StyleSheet.create({
   liveHeader: {
     paddingHorizontal: 16,
     paddingTop: 14,
-    paddingBottom: 10,
+    paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: "#7C3AED22",
+    gap: 8,
   },
   liveTitleRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginBottom: 4,
   },
   liveDot: {
     width: 8,
@@ -1674,65 +1850,205 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#A78BFA",
     letterSpacing: -0.2,
+    flex: 1,
+  },
+  liveCount: {
+    fontSize: 10,
+    color: Colors.textTertiary,
+    fontWeight: "600",
+  },
+  liveHeaderActions: {
+    flexDirection: "row",
+    gap: 6,
+  },
+  liveToggleChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    backgroundColor: Colors.background,
+  },
+  liveToggleChipActive: {
+    borderColor: "#7C3AED66",
+    backgroundColor: "#7C3AED18",
+  },
+  liveToggleChipText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: Colors.textTertiary,
   },
   liveSubtitle: {
     fontSize: 11,
     color: Colors.textSecondary,
     marginLeft: 16,
   },
+  // Speaker bar
+  liveSpeakerBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#7C3AED15",
+    gap: 10,
+  },
+  liveSpeakerLabel: {
+    fontSize: 11,
+    color: Colors.textTertiary,
+    fontWeight: "600",
+  },
+  liveSpeakerToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flex: 1,
+  },
+  liveSpeakerPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    backgroundColor: Colors.background,
+  },
+  liveSpeakerPillYouActive: {
+    borderColor: "#7C3AED66",
+    backgroundColor: "#7C3AED18",
+  },
+  liveSpeakerPillThemActive: {
+    borderColor: ACCENT_TRAVEL_BORDER,
+    backgroundColor: ACCENT_TRAVEL_DIM,
+  },
+  liveSpeakerPillText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: Colors.textTertiary,
+  },
+  // Chat feed
   liveCaptionsScroll: {
-    height: 340,
+    height: 380,
   },
   liveCaptionsContent: {
-    padding: 16,
+    padding: 14,
+    gap: 10,
     flexGrow: 1,
   },
   liveEmpty: {
-    flex: 1,
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 60,
-    gap: 12,
+    gap: 14,
   },
   liveEmptyText: {
     fontSize: 14,
     color: Colors.textTertiary,
     textAlign: "center",
-    maxWidth: 220,
-    lineHeight: 20,
+    maxWidth: 240,
+    lineHeight: 22,
   },
-  liveLineBlock: {
-    marginBottom: 18,
-    paddingBottom: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: "#7C3AED15",
+  // Chat cards
+  liveChatCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 14,
+    gap: 8,
   },
-  liveOriginalText: {
-    fontSize: 20,
+  liveChatCardYou: {
+    backgroundColor: "#1A0F2E",
+    borderColor: "#7C3AED44",
+  },
+  liveChatCardThem: {
+    backgroundColor: "#0A1F1A",
+    borderColor: "#10B98133",
+  },
+  liveChatCardHighlight: {
+    borderColor: "#A78BFA",
+  },
+  liveChatMeta: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  liveChatSpeakerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  liveChatSpeakerText: {
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+  },
+  liveChatTime: {
+    fontSize: 10,
+    color: Colors.textTertiary,
+  },
+  liveConfidenceBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 8,
+    backgroundColor: "#92400E22",
+    borderWidth: 1,
+    borderColor: "#92400E55",
+  },
+  liveConfidenceText: {
+    fontSize: 9,
+    color: "#F59E0B",
+    fontWeight: "600",
+  },
+  liveChatOriginal: {
+    fontSize: 19,
     fontWeight: "600",
     color: Colors.text,
-    lineHeight: 28,
-    marginBottom: 6,
+    lineHeight: 27,
   },
-  liveTranslatedText: {
-    fontSize: 17,
-    color: "#A78BFA",
-    lineHeight: 24,
+  liveChatTranslated: {
+    fontSize: 16,
+    lineHeight: 23,
     fontWeight: "500",
   },
-  liveTranslatingText: {
-    fontSize: 14,
+  liveChatTranslating: {
+    fontSize: 13,
     color: Colors.textTertiary,
     fontStyle: "italic",
   },
+  liveChatActions: {
+    flexDirection: "row",
+    gap: 12,
+    paddingTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: "#ffffff08",
+  },
+  liveChatActionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  liveChatActionText: {
+    fontSize: 11,
+    color: Colors.textTertiary,
+    fontWeight: "600",
+  },
+  // Interim
   liveInterimBlock: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: "#7C3AED11",
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: "#7C3AED0D",
     borderWidth: 1,
-    borderColor: "#7C3AED22",
-    marginBottom: 8,
+    gap: 4,
+  },
+  liveInterimSpeaker: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.3,
   },
   liveInterimText: {
     fontSize: 18,
@@ -1740,6 +2056,7 @@ const styles = StyleSheet.create({
     lineHeight: 26,
     fontStyle: "italic",
   },
+  // Unsupported
   liveUnsupported: {
     flexDirection: "row",
     alignItems: "center",
@@ -1747,7 +2064,7 @@ const styles = StyleSheet.create({
     margin: 12,
     padding: 10,
     borderRadius: 10,
-    backgroundColor: Colors.card,
+    backgroundColor: Colors.background,
     borderWidth: 1,
     borderColor: Colors.cardBorder,
   },
@@ -1756,6 +2073,7 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     flex: 1,
   },
+  // Controls
   liveControls: {
     flexDirection: "row",
     gap: 10,
@@ -1789,7 +2107,7 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
     paddingHorizontal: 18,
     borderRadius: 12,
-    backgroundColor: Colors.card,
+    backgroundColor: Colors.background,
     borderWidth: 1,
     borderColor: Colors.cardBorder,
   },
