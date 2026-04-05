@@ -94,23 +94,54 @@ router.post("/live-captions/transcribe", upload.single("audio"), async (req, res
       { type: file.mimetype || "audio/webm" }
     );
 
-    const result = await openai.audio.transcriptions.create({
+    // Step 1: Transcribe — use gpt-4o-mini-transcribe with "json" format
+    // ("verbose_json" is not supported by this model on the Replit proxy)
+    const transcribeResult = await openai.audio.transcriptions.create({
       file: audioFile,
-      model: "whisper-1",
-      response_format: "verbose_json",
+      model: "gpt-4o-mini-transcribe",
+      response_format: "json",
     } as Parameters<typeof openai.audio.transcriptions.create>[0]);
 
-    const raw = result as unknown as { language?: string; text?: string };
-    const langCode = raw.language ?? "";
+    const transcribedText = (transcribeResult as unknown as { text: string }).text?.trim();
+    if (!transcribedText) {
+      return res.json({ text: "", languageCode: "", languageLabel: "", languageProbability: 0, source: "openai" });
+    }
+
+    // Step 2: Detect language from the transcribed text using GPT
+    let langCode = "";
+    let langLabel = "";
+    try {
+      const langResult = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `Detect the language of the text. Return only valid JSON with two fields: "languageCode" (ISO 639-1, e.g. "hi","te","en","zh") and "languageLabel" (full name in English, e.g. "Hindi","Telugu"). No markdown, no extra text.`,
+          },
+          { role: "user", content: transcribedText },
+        ],
+        response_format: { type: "json_object" },
+        max_tokens: 60,
+      });
+      const parsed = JSON.parse(langResult.choices[0]?.message?.content ?? "{}") as {
+        languageCode?: string;
+        languageLabel?: string;
+      };
+      langCode = parsed.languageCode ?? "";
+      langLabel = parsed.languageLabel ?? getLangLabel(langCode);
+    } catch {
+      // Language detection is non-critical — proceed without it
+    }
+
     return res.json({
-      text: raw.text ?? (result as unknown as { text: string }).text ?? "",
+      text: transcribedText,
       languageCode: langCode,
-      languageLabel: getLangLabel(langCode),
-      languageProbability: 0.85,
+      languageLabel: langLabel || getLangLabel(langCode),
+      languageProbability: 0.9,
       source: "openai",
     });
   } catch (err) {
-    console.error("Whisper fallback error:", err);
+    console.error("Transcription error:", err);
     return res.status(500).json({ error: "Transcription failed" });
   }
 });
