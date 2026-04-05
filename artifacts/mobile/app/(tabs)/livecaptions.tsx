@@ -178,7 +178,7 @@ export default function LiveCaptionsTab() {
   // Refs
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const chunkIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const chunkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeMimeRef = useRef<string>("");
   const elKeyRef = useRef<string>("");
   const accumulatedRef = useRef<string>("");
@@ -222,7 +222,6 @@ export default function LiveCaptionsTab() {
   // Send audio chunk to backend → get transcript + language
   const sendChunk = useCallback(async (blob: Blob) => {
     if (blob.size < 1000) return; // skip near-empty chunks
-    if (!listeningRef.current) return; // don't process chunks after stop
     setStatus("processing");
     try {
       const form = new FormData();
@@ -250,7 +249,10 @@ export default function LiveCaptionsTab() {
       };
 
       const newText = data.text?.trim();
-      if (!newText) { setStatus("listening"); return; }
+      if (!newText) {
+        if (listeningRef.current) setStatus("listening");
+        return;
+      }
 
       // Accumulate transcript
       accumulatedRef.current = accumulatedRef.current
@@ -261,7 +263,8 @@ export default function LiveCaptionsTab() {
       setLangCode(data.languageCode);
       setLangLabel(data.languageLabel || getLangLabel(data.languageCode));
       setCaptionTimestamp(stamp());
-      setStatus("listening");
+      // Only restore to "listening" if we're still actively recording
+      if (listeningRef.current) setStatus("listening");
 
       // Translate to English
       if (data.languageCode && !data.languageCode.startsWith("en")) {
@@ -276,7 +279,6 @@ export default function LiveCaptionsTab() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Transcription failed";
       setErrorMsg(msg);
-      // Restore to listening so the user knows recording continues
       if (listeningRef.current) setStatus("listening");
     }
   }, [translateToEnglish]);
@@ -304,47 +306,55 @@ export default function LiveCaptionsTab() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       streamRef.current = stream;
 
-      // Pick mime type — iOS Safari only supports audio/mp4, not webm
+      // Pick the best supported mime type — iOS Safari only supports audio/mp4
       const mimeType = getBestMimeType();
       activeMimeRef.current = mimeType;
-
-      let recorder: MediaRecorder;
-      try {
-        recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-      } catch {
-        // Some browsers throw on unknown mimeType — fall back to no constraint
-        recorder = new MediaRecorder(stream);
-        activeMimeRef.current = "";
-      }
-      recorderRef.current = recorder;
       listeningRef.current = true;
 
-      recorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) {
-          sendChunk(e.data);
+      // ── Stop/restart cycle ────────────────────────────────────────────────
+      // iOS Safari's MediaRecorder fires ondataavailable ONLY when .stop() is
+      // called — never from requestData() or a timeslice. To get periodic
+      // chunks we stop() after 10 s (which reliably fires ondataavailable),
+      // then immediately start a fresh recorder on the same stream.
+      const startSegment = () => {
+        if (!listeningRef.current || !streamRef.current?.active) return;
+
+        let rec: MediaRecorder;
+        try {
+          rec = new MediaRecorder(streamRef.current, mimeType ? { mimeType } : undefined);
+        } catch {
+          rec = new MediaRecorder(streamRef.current);
+          activeMimeRef.current = "";
         }
+        recorderRef.current = rec;
+
+        rec.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) sendChunk(e.data);
+        };
+
+        rec.onstop = () => {
+          // Auto-restart for the next segment only if user hasn't pressed Stop
+          if (listeningRef.current) startSegment();
+        };
+
+        rec.onerror = () => {
+          if (listeningRef.current) {
+            setErrorMsg("Recording error. Try again.");
+            setStatus("error");
+          }
+        };
+
+        rec.start(); // no timeslice — stop() will fire ondataavailable
+
+        // Schedule stop after 10 s to harvest the chunk
+        chunkTimerRef.current = setTimeout(() => {
+          if (rec.state === "recording") {
+            try { rec.stop(); } catch {}
+          }
+        }, 10000);
       };
 
-      recorder.onerror = () => {
-        if (listeningRef.current) {
-          setErrorMsg("Recording error. Try again.");
-          setStatus("error");
-        }
-      };
-
-      // Start without timeslice — timeslice is unreliable on iOS Safari.
-      // Instead, call requestData() on a manual interval to force ondataavailable.
-      recorder.start();
-
-      chunkIntervalRef.current = setInterval(() => {
-        if (
-          recorderRef.current &&
-          recorderRef.current.state === "recording" &&
-          listeningRef.current
-        ) {
-          try { recorderRef.current.requestData(); } catch {}
-        }
-      }, 10000);
+      startSegment();
     } catch (err) {
       listeningRef.current = false;
       const msg = err instanceof Error ? err.message : "Microphone access denied";
@@ -362,21 +372,25 @@ export default function LiveCaptionsTab() {
   }, [status, sendChunk]);
 
   const handleStopListening = useCallback(() => {
+    // Signal all segments to not restart after their current stop
     listeningRef.current = false;
-    if (chunkIntervalRef.current !== null) {
-      clearInterval(chunkIntervalRef.current);
-      chunkIntervalRef.current = null;
+    // Cancel any pending 10-s timer
+    if (chunkTimerRef.current !== null) {
+      clearTimeout(chunkTimerRef.current);
+      chunkTimerRef.current = null;
     }
-    // Request the last chunk before stopping
+    // Stop the active recorder — this fires ondataavailable one final time
+    // (reliable on iOS Safari) so the last spoken words get transcribed
     try {
-      if (recorderRef.current?.state === "recording") recorderRef.current.requestData();
+      if (recorderRef.current?.state === "recording") recorderRef.current.stop();
     } catch {}
+    // Release the mic tracks after a short delay to let the final
+    // ondataavailable fire and sendChunk finish its fetch
     setTimeout(() => {
-      try { recorderRef.current?.stop(); } catch {}
       try { streamRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
       recorderRef.current = null;
       streamRef.current = null;
-    }, 200); // small delay to let ondataavailable fire for final chunk
+    }, 600);
     setStatus("idle");
   }, []);
 
@@ -384,7 +398,7 @@ export default function LiveCaptionsTab() {
   useEffect(() => {
     return () => {
       listeningRef.current = false;
-      if (chunkIntervalRef.current !== null) clearInterval(chunkIntervalRef.current);
+      if (chunkTimerRef.current !== null) clearTimeout(chunkTimerRef.current);
       try { recorderRef.current?.stop(); } catch {}
       try { streamRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
     };
