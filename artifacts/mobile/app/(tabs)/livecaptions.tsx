@@ -122,14 +122,26 @@ function saveHistory(entries: CaptionEntry[]) {
 
 function getBestMimeType(): string {
   if (typeof MediaRecorder === "undefined") return "";
+  // iOS Safari supports only mp4; test it first so we never pass an unsupported
+  // type to the constructor (which throws a NotSupportedError on Safari).
   const candidates = [
+    "audio/mp4;codecs=mp4a.40.2",
+    "audio/mp4",
     "audio/webm;codecs=opus",
     "audio/webm",
-    "audio/mp4",
     "audio/ogg;codecs=opus",
     "audio/ogg",
   ];
-  return candidates.find((t) => MediaRecorder.isTypeSupported(t)) ?? "";
+  return candidates.find((t) => {
+    try { return MediaRecorder.isTypeSupported(t); } catch { return false; }
+  }) ?? "";
+}
+
+function mimeToExt(mime: string): string {
+  if (mime.includes("mp4") || mime.includes("m4a")) return "m4a";
+  if (mime.includes("ogg")) return "ogg";
+  if (mime.includes("wav")) return "wav";
+  return "webm";
 }
 
 // ── Main component ─────────────────────────────────────────────────────────
@@ -166,8 +178,11 @@ export default function LiveCaptionsTab() {
   // Refs
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const chunkIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const activeMimeRef = useRef<string>("");
   const elKeyRef = useRef<string>("");
   const accumulatedRef = useRef<string>("");
+  const listeningRef = useRef<boolean>(false);
 
   // Load stored key and history on mount
   useEffect(() => {
@@ -207,10 +222,12 @@ export default function LiveCaptionsTab() {
   // Send audio chunk to backend → get transcript + language
   const sendChunk = useCallback(async (blob: Blob) => {
     if (blob.size < 1000) return; // skip near-empty chunks
+    if (!listeningRef.current) return; // don't process chunks after stop
     setStatus("processing");
     try {
       const form = new FormData();
-      form.append("audio", blob, `chunk.webm`);
+      const ext = mimeToExt(activeMimeRef.current || blob.type);
+      form.append("audio", blob, `chunk.${ext}`);
       const headers: Record<string, string> = {};
       if (elKeyRef.current) headers["x-elevenlabs-key"] = elKeyRef.current;
 
@@ -259,7 +276,8 @@ export default function LiveCaptionsTab() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Transcription failed";
       setErrorMsg(msg);
-      setStatus("listening"); // keep listening despite error
+      // Restore to listening so the user knows recording continues
+      if (listeningRef.current) setStatus("listening");
     }
   }, [translateToEnglish]);
 
@@ -286,9 +304,20 @@ export default function LiveCaptionsTab() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       streamRef.current = stream;
 
+      // Pick mime type — iOS Safari only supports audio/mp4, not webm
       const mimeType = getBestMimeType();
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      activeMimeRef.current = mimeType;
+
+      let recorder: MediaRecorder;
+      try {
+        recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      } catch {
+        // Some browsers throw on unknown mimeType — fall back to no constraint
+        recorder = new MediaRecorder(stream);
+        activeMimeRef.current = "";
+      }
       recorderRef.current = recorder;
+      listeningRef.current = true;
 
       recorder.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) {
@@ -297,17 +326,34 @@ export default function LiveCaptionsTab() {
       };
 
       recorder.onerror = () => {
-        setErrorMsg("Recording error. Try again.");
-        setStatus("error");
+        if (listeningRef.current) {
+          setErrorMsg("Recording error. Try again.");
+          setStatus("error");
+        }
       };
 
-      recorder.start(4000); // fire dataavailable every 4 seconds
+      // Start without timeslice — timeslice is unreliable on iOS Safari.
+      // Instead, call requestData() on a manual interval to force ondataavailable.
+      recorder.start();
+
+      chunkIntervalRef.current = setInterval(() => {
+        if (
+          recorderRef.current &&
+          recorderRef.current.state === "recording" &&
+          listeningRef.current
+        ) {
+          try { recorderRef.current.requestData(); } catch {}
+        }
+      }, 4000);
     } catch (err) {
+      listeningRef.current = false;
       const msg = err instanceof Error ? err.message : "Microphone access denied";
       if (msg.toLowerCase().includes("denied") || msg.toLowerCase().includes("permission")) {
-        setErrorMsg("Microphone permission denied. Please allow microphone access and try again.");
-      } else if (msg.toLowerCase().includes("found") || msg.toLowerCase().includes("device")) {
+        setErrorMsg("Microphone permission denied. Please allow mic access in your browser settings and try again.");
+      } else if (msg.toLowerCase().includes("found") || msg.toLowerCase().includes("device") || msg.toLowerCase().includes("hardware")) {
         setErrorMsg("No microphone found. Please connect a microphone and try again.");
+      } else if (msg.toLowerCase().includes("notsupported") || msg.toLowerCase().includes("not supported")) {
+        setErrorMsg("Your browser does not support audio recording. Try Chrome or Safari.");
       } else {
         setErrorMsg(msg);
       }
@@ -316,16 +362,29 @@ export default function LiveCaptionsTab() {
   }, [status, sendChunk]);
 
   const handleStopListening = useCallback(() => {
-    try { recorderRef.current?.stop(); } catch {}
-    try { streamRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
-    recorderRef.current = null;
-    streamRef.current = null;
+    listeningRef.current = false;
+    if (chunkIntervalRef.current !== null) {
+      clearInterval(chunkIntervalRef.current);
+      chunkIntervalRef.current = null;
+    }
+    // Request the last chunk before stopping
+    try {
+      if (recorderRef.current?.state === "recording") recorderRef.current.requestData();
+    } catch {}
+    setTimeout(() => {
+      try { recorderRef.current?.stop(); } catch {}
+      try { streamRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
+      recorderRef.current = null;
+      streamRef.current = null;
+    }, 200); // small delay to let ondataavailable fire for final chunk
     setStatus("idle");
   }, []);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      listeningRef.current = false;
+      if (chunkIntervalRef.current !== null) clearInterval(chunkIntervalRef.current);
       try { recorderRef.current?.stop(); } catch {}
       try { streamRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
     };
