@@ -21,6 +21,27 @@ const ACCENT_LIVE_DIM = "#22C55E18";
 const ACCENT_LIVE_BORDER = "#22C55E44";
 const STORAGE_KEY_EL_KEY = "lc_el_key_v1";
 const STORAGE_KEY_HISTORY = "lc_history_v1";
+const STORAGE_KEY_OUTPUT_LANG = "lc_output_lang_v1";
+
+// Output language options — add more codes here to expand the list
+const OUTPUT_LANG_OPTIONS: { code: string; label: string }[] = [
+  { code: "en", label: "English" },
+  { code: "te", label: "Telugu" },
+  { code: "hi", label: "Hindi" },
+  { code: "ta", label: "Tamil" },
+  { code: "kn", label: "Kannada" },
+  { code: "ml", label: "Malayalam" },
+  { code: "bn", label: "Bengali" },
+  { code: "mr", label: "Marathi" },
+  { code: "gu", label: "Gujarati" },
+  { code: "pa", label: "Punjabi" },
+  { code: "es", label: "Spanish" },
+  { code: "fr", label: "French" },
+  { code: "de", label: "German" },
+  { code: "ar", label: "Arabic" },
+  { code: "ja", label: "Japanese" },
+  { code: "zh", label: "Chinese" },
+];
 
 function getApiBase(): string {
   if (Platform.OS === "web" && typeof window !== "undefined") {
@@ -118,6 +139,16 @@ function saveHistory(entries: CaptionEntry[]) {
   localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(entries.slice(0, 50)));
 }
 
+function loadOutputLang(): string {
+  if (typeof localStorage === "undefined") return "en";
+  return localStorage.getItem(STORAGE_KEY_OUTPUT_LANG) ?? "en";
+}
+
+function saveOutputLang(lang: string) {
+  if (typeof localStorage === "undefined") return;
+  localStorage.setItem(STORAGE_KEY_OUTPUT_LANG, lang);
+}
+
 // ── Audio helpers ──────────────────────────────────────────────────────────
 
 function getBestMimeType(): string {
@@ -166,6 +197,11 @@ export default function LiveCaptionsTab() {
   const [isTranslating, setIsTranslating] = useState<boolean>(false);
   const [captionTimestamp, setCaptionTimestamp] = useState<string>("");
 
+  // Output language (dual output)
+  const [outputLang, setOutputLang] = useState<string>("en");
+  const [outputLangCaption, setOutputLangCaption] = useState<string>("");
+  const [isTranslatingOutput, setIsTranslatingOutput] = useState<boolean>(false);
+
   // Demo mode
   const [demoText, setDemoText] = useState<string>("");
   const [demoLang, setDemoLang] = useState<string>("hi");
@@ -182,9 +218,11 @@ export default function LiveCaptionsTab() {
   const activeMimeRef = useRef<string>("");
   const elKeyRef = useRef<string>("");
   const accumulatedRef = useRef<string>("");
+  const accumulatedOutputRef = useRef<string>("");
   const listeningRef = useRef<boolean>(false);
+  const outputLangRef = useRef<string>("en");
 
-  // Load stored key and history on mount
+  // Load stored key, history, and output language on mount
   useEffect(() => {
     const stored = loadStoredKey();
     if (stored) {
@@ -193,6 +231,9 @@ export default function LiveCaptionsTab() {
       elKeyRef.current = stored;
     }
     setHistory(loadHistory());
+    const ol = loadOutputLang();
+    setOutputLang(ol);
+    outputLangRef.current = ol;
   }, []);
 
   // ── Helpers ──
@@ -200,16 +241,17 @@ export default function LiveCaptionsTab() {
   const stamp = () =>
     new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
-  // Translate any text to English using existing backend translate endpoint
-  const translateToEnglish = useCallback(async (text: string, fromLang: string): Promise<string> => {
+  // Generic translation helper — reused for both English and selected output language
+  const translateText = useCallback(async (text: string, fromLang: string, toLang: string): Promise<string> => {
     if (!text.trim()) return "";
-    const normalizedFrom = fromLang.split("-")[0] ?? "en";
-    if (normalizedFrom === "en" || !fromLang) return text;
+    const from = (fromLang || "").split("-")[0];
+    const to = (toLang || "").split("-")[0];
+    if (!from || !to || from === to) return text;
     try {
       const res = await fetch(`${getApiBase()}/ai/translate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, fromLang: normalizedFrom, toLang: "en" }),
+        body: JSON.stringify({ text, fromLang: from, toLang: to }),
       });
       if (!res.ok) throw new Error("translate failed");
       const data = await res.json() as { translation?: string };
@@ -218,6 +260,14 @@ export default function LiveCaptionsTab() {
       return text;
     }
   }, []);
+
+  // Translate to English (thin wrapper — keeps existing call sites unchanged)
+  const translateToEnglish = useCallback(async (text: string, fromLang: string): Promise<string> => {
+    if (!text.trim()) return "";
+    const normalizedFrom = (fromLang || "").split("-")[0];
+    if (!normalizedFrom || normalizedFrom === "en") return text;
+    return translateText(text, normalizedFrom, "en");
+  }, [translateText]);
 
   // Send audio chunk to backend → get transcript + language
   const sendChunk = useCallback(async (blob: Blob) => {
@@ -266,22 +316,45 @@ export default function LiveCaptionsTab() {
       // Only restore to "listening" if we're still actively recording
       if (listeningRef.current) setStatus("listening");
 
-      // Translate to English
-      if (data.languageCode && !data.languageCode.startsWith("en")) {
+      const srcLang = (data.languageCode || "").split("-")[0];
+      const isEnglishSource = !srcLang || srcLang === "en";
+      const outLang = outputLangRef.current;
+
+      // ── English translation ──
+      if (!isEnglishSource) {
         setIsTranslating(true);
-        translateToEnglish(newText, data.languageCode).then((en) => {
+        translateToEnglish(newText, srcLang).then((en) => {
           setEnglishCaption((prev) => prev ? `${prev} ${en}` : en);
           setIsTranslating(false);
         });
       } else {
         setEnglishCaption(accumulatedRef.current);
       }
+
+      // ── Output language translation (second pane) ──
+      if (outLang !== "en") {
+        if (outLang === srcLang) {
+          // Same as source — show original text
+          accumulatedOutputRef.current = accumulatedRef.current;
+          setOutputLangCaption(accumulatedOutputRef.current);
+        } else {
+          setIsTranslatingOutput(true);
+          // Translate from source → selected output language
+          const translateFrom = isEnglishSource ? "en" : srcLang;
+          translateText(newText, translateFrom, outLang).then((out) => {
+            accumulatedOutputRef.current = accumulatedOutputRef.current
+              ? `${accumulatedOutputRef.current} ${out}` : out;
+            setOutputLangCaption(accumulatedOutputRef.current);
+            setIsTranslatingOutput(false);
+          });
+        }
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Transcription failed";
       setErrorMsg(msg);
       if (listeningRef.current) setStatus("listening");
     }
-  }, [translateToEnglish]);
+  }, [translateToEnglish, translateText]);
 
   // ── Controls ──
 
@@ -291,10 +364,12 @@ export default function LiveCaptionsTab() {
     setErrorMsg("");
     setTranscript("");
     setEnglishCaption("");
+    setOutputLangCaption("");
     setLangCode("");
     setLangLabel("");
     setCaptionTimestamp("");
     accumulatedRef.current = "";
+    accumulatedOutputRef.current = "";
 
     if (typeof navigator === "undefined" || !navigator.mediaDevices) {
       setStatus("error");
@@ -428,6 +503,8 @@ export default function LiveCaptionsTab() {
     if (!demoText.trim()) return;
     setDemoLoading(true);
     setErrorMsg("");
+    setOutputLangCaption("");
+    accumulatedOutputRef.current = "";
     try {
       const label = getLangLabel(demoLang);
       setLangCode(demoLang);
@@ -436,14 +513,22 @@ export default function LiveCaptionsTab() {
       setCaptionTimestamp(stamp());
       accumulatedRef.current = demoText.trim();
 
-      const en = await translateToEnglish(demoText.trim(), demoLang);
+      const outLang = outputLangRef.current;
+      const [en, out] = await Promise.all([
+        translateToEnglish(demoText.trim(), demoLang),
+        outLang !== "en" ? translateText(demoText.trim(), demoLang, outLang) : Promise.resolve(""),
+      ]);
       setEnglishCaption(en);
+      if (outLang !== "en") {
+        accumulatedOutputRef.current = out;
+        setOutputLangCaption(out);
+      }
     } catch {
       setErrorMsg("Translation failed. Please try again.");
     } finally {
       setDemoLoading(false);
     }
-  }, [demoText, demoLang, translateToEnglish]);
+  }, [demoText, demoLang, translateToEnglish, translateText]);
 
   const handleDemoSample = useCallback(async (sample: typeof DEMO_SAMPLES[0]) => {
     setDemoText(sample.text);
@@ -453,16 +538,26 @@ export default function LiveCaptionsTab() {
     setTranscript(sample.text);
     setCaptionTimestamp(stamp());
     accumulatedRef.current = sample.text;
+    setOutputLangCaption("");
+    accumulatedOutputRef.current = "";
     setDemoLoading(true);
     try {
-      const en = await translateToEnglish(sample.text, sample.lang);
+      const outLang = outputLangRef.current;
+      const [en, out] = await Promise.all([
+        translateToEnglish(sample.text, sample.lang),
+        outLang !== "en" ? translateText(sample.text, sample.lang, outLang) : Promise.resolve(""),
+      ]);
       setEnglishCaption(en);
+      if (outLang !== "en") {
+        accumulatedOutputRef.current = out;
+        setOutputLangCaption(out);
+      }
     } catch {
       setEnglishCaption(sample.text);
     } finally {
       setDemoLoading(false);
     }
-  }, [translateToEnglish]);
+  }, [translateToEnglish, translateText]);
 
   // ── Actions ──
 
@@ -479,11 +574,23 @@ export default function LiveCaptionsTab() {
   const handleClear = useCallback(() => {
     setTranscript("");
     setEnglishCaption("");
+    setOutputLangCaption("");
     setLangCode("");
     setLangLabel("");
     setCaptionTimestamp("");
     setErrorMsg("");
     accumulatedRef.current = "";
+    accumulatedOutputRef.current = "";
+  }, []);
+
+  // Output language selector — persisted across sessions, no audio reset needed
+  const handleSetOutputLang = useCallback((code: string) => {
+    setOutputLang(code);
+    outputLangRef.current = code;
+    saveOutputLang(code);
+    // Clear the second pane so next chunk fills it fresh for the new language
+    setOutputLangCaption("");
+    accumulatedOutputRef.current = "";
   }, []);
 
   const handleSaveToHistory = useCallback(() => {
@@ -513,6 +620,8 @@ export default function LiveCaptionsTab() {
   const hasCaption = !!(transcript || englishCaption);
   const showEnglishDiff = langCode && !langCode.startsWith("en");
   const tabBottom = insets.bottom + 80;
+  const outputLangLabel = OUTPUT_LANG_OPTIONS.find((o) => o.code === outputLang)?.label ?? "English";
+  const showOutputPane = outputLang !== "en"; // second pane only when non-English is selected
 
   // ── Render ──
   return (
@@ -531,7 +640,7 @@ export default function LiveCaptionsTab() {
             <View style={[styles.liveDot, isLive && styles.liveDotActive]} />
             <View>
               <Text style={styles.headerTitle}>Live Captions</Text>
-              <Text style={styles.headerSub}>Speech → real-time English captions</Text>
+              <Text style={styles.headerSub}>Speech → real-time captions in any language</Text>
             </View>
           </View>
           <Pressable style={styles.settingsBtn} onPress={() => setSettingsOpen((v) => !v)}>
@@ -597,6 +706,37 @@ export default function LiveCaptionsTab() {
               {hasKey ? "LIVE MODE — ElevenLabs Scribe" : "DEMO / AI MODE — OpenAI Whisper fallback"}
             </Text>
           </View>
+        </View>
+
+        {/* ── Output Language Selector ────────────────────────────────── */}
+        <View style={styles.outputLangCard}>
+          <View style={styles.outputLangCardHeader}>
+            <Feather name="globe" size={13} color={Colors.accentTertiary} />
+            <Text style={styles.outputLangCardTitle}>Output Language</Text>
+            <Text style={styles.outputLangCardSub}>
+              {outputLang === "en" ? "English (always shown)" : `English + ${outputLangLabel}`}
+            </Text>
+          </View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.outputLangOptions}
+          >
+            {OUTPUT_LANG_OPTIONS.map((opt) => (
+              <Pressable
+                key={opt.code}
+                style={[styles.outputLangChip, outputLang === opt.code && styles.outputLangChipActive]}
+                onPress={() => handleSetOutputLang(opt.code)}
+              >
+                <Text style={[
+                  styles.outputLangChipText,
+                  outputLang === opt.code && styles.outputLangChipTextActive,
+                ]}>
+                  {LANG_FLAGS[opt.code] ?? "🌐"} {opt.label}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
         </View>
 
         {/* ── Mic Controls (Live Mode) ────────────────────────────────── */}
@@ -682,27 +822,83 @@ export default function LiveCaptionsTab() {
               </View>
             )}
 
+            {/* Language direction row: Source → English [→ Output] */}
+            <View style={styles.directionRow}>
+              <Text style={styles.directionItem}>
+                {LANG_FLAGS[langCode?.split("-")[0] ?? ""] ?? "🌐"} {langLabel || "Source"}
+              </Text>
+              <Feather name="arrow-right" size={11} color={Colors.textTertiary} />
+              <Text style={styles.directionItem}>🇺🇸 English</Text>
+              {showOutputPane && (
+                <>
+                  <Feather name="arrow-right" size={11} color={Colors.textTertiary} />
+                  <Text style={styles.directionItem}>
+                    {LANG_FLAGS[outputLang] ?? "🌐"} {outputLangLabel}
+                  </Text>
+                </>
+              )}
+            </View>
+
             {/* English caption — prominent */}
             <View style={styles.englishBlock}>
               <View style={styles.englishLabelRow}>
                 <Feather name="globe" size={12} color={Colors.accent} />
-                <Text style={styles.englishLabel}>English Caption</Text>
+                <Text style={styles.englishLabel}>English</Text>
                 {isTranslating && (
                   <View style={styles.translatingBadge}>
                     <Text style={styles.translatingText}>translating…</Text>
                   </View>
                 )}
+                <Pressable
+                  style={styles.inlineCopyBtn}
+                  onPress={() => {
+                    const t = englishCaption || transcript;
+                    if (t && typeof navigator !== "undefined" && navigator.clipboard) {
+                      navigator.clipboard.writeText(t).catch(() => {});
+                    }
+                  }}
+                >
+                  <Feather name="copy" size={11} color={Colors.textTertiary} />
+                </Pressable>
               </View>
               <Text style={styles.englishText}>
                 {englishCaption || (isTranslating ? "Translating…" : transcript)}
               </Text>
             </View>
 
+            {/* Output language pane — only when a non-English language is selected */}
+            {showOutputPane && (
+              <View style={styles.outputBlock}>
+                <View style={styles.outputLabelRow}>
+                  <Text style={styles.outputLangFlag}>{LANG_FLAGS[outputLang] ?? "🌐"}</Text>
+                  <Text style={styles.outputLabel}>{outputLangLabel}</Text>
+                  {isTranslatingOutput && (
+                    <View style={styles.translatingBadge}>
+                      <Text style={styles.translatingText}>translating…</Text>
+                    </View>
+                  )}
+                  <Pressable
+                    style={styles.inlineCopyBtn}
+                    onPress={() => {
+                      if (outputLangCaption && typeof navigator !== "undefined" && navigator.clipboard) {
+                        navigator.clipboard.writeText(outputLangCaption).catch(() => {});
+                      }
+                    }}
+                  >
+                    <Feather name="copy" size={11} color={Colors.textTertiary} />
+                  </Pressable>
+                </View>
+                <Text style={styles.outputText}>
+                  {outputLangCaption || (isTranslatingOutput ? "Translating…" : "")}
+                </Text>
+              </View>
+            )}
+
             {/* Caption actions */}
             <View style={styles.captionActions}>
               <Pressable style={styles.captionAction} onPress={handleCopy}>
                 <Feather name="copy" size={13} color={Colors.textSecondary} />
-                <Text style={styles.captionActionText}>Copy</Text>
+                <Text style={styles.captionActionText}>Copy All</Text>
               </Pressable>
               <Pressable style={styles.captionAction} onPress={handleSaveToHistory}>
                 <Feather name="bookmark" size={13} color={Colors.textSecondary} />
@@ -788,7 +984,11 @@ export default function LiveCaptionsTab() {
           >
             <Feather name="globe" size={14} color="#fff" />
             <Text style={styles.translateBtnText}>
-              {demoLoading ? "Translating…" : "Translate to English"}
+              {demoLoading
+                ? "Translating…"
+                : outputLang === "en"
+                ? "Translate to English"
+                : `Translate → English + ${outputLangLabel}`}
             </Text>
           </Pressable>
         </View>
@@ -1383,5 +1583,108 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: Colors.text,
     lineHeight: 20,
+  },
+
+  // Output Language Selector
+  outputLangCard: {
+    backgroundColor: Colors.card,
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: Colors.accentTertiary + "33",
+    gap: 10,
+  },
+  outputLangCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  outputLangCardTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: Colors.accentTertiary,
+  },
+  outputLangCardSub: {
+    fontSize: 11,
+    color: Colors.textTertiary,
+    marginLeft: "auto" as unknown as number,
+  },
+  outputLangOptions: {
+    paddingHorizontal: 2,
+    gap: 6,
+    flexDirection: "row",
+  },
+  outputLangChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: Colors.background,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  outputLangChipActive: {
+    borderColor: Colors.accentTertiary + "88",
+    backgroundColor: Colors.accentTertiary + "18",
+  },
+  outputLangChipText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: Colors.textSecondary,
+  },
+  outputLangChipTextActive: {
+    color: Colors.accentTertiary,
+  },
+
+  // Direction row
+  directionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexWrap: "wrap",
+    marginBottom: 2,
+  },
+  directionItem: {
+    fontSize: 11,
+    color: Colors.textTertiary,
+    fontWeight: "500",
+  },
+
+  // Inline copy button inside label rows
+  inlineCopyBtn: {
+    marginLeft: "auto" as unknown as number,
+    padding: 3,
+  },
+
+  // Output language caption pane (second pane — purple accent)
+  outputBlock: {
+    backgroundColor: Colors.accentTertiary + "0C",
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: Colors.accentTertiary + "33",
+  },
+  outputLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 8,
+  },
+  outputLangFlag: {
+    fontSize: 13,
+  },
+  outputLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: Colors.accentTertiary,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    flex: 1,
+  },
+  outputText: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: Colors.text,
+    lineHeight: 28,
+    letterSpacing: -0.3,
   },
 });

@@ -1,0 +1,194 @@
+Enhance the existing "Live Captions" feature in the Voice Persona app by adding Multi-Language Output with Dual Output View, WITHOUT disturbing, removing, renaming, refactoring, or breaking any current functionality, tabs, routes, components, styles, or working logic.
+
+CRITICAL NON-DESTRUCTIVE RULES:
+- Do NOT break any existing functionality.
+- Do NOT remove or rewrite working code unless absolutely required for this enhancement.
+- Do NOT modify existing tabs except only where necessary inside the existing Live Captions tab.
+- Do NOT change current microphone capture flow, current transcription flow, current ElevenLabs integration, current settings flow, or current demo/fallback mode behavior unless needed to support this enhancement.
+- Keep the current app visually consistent and mobile-friendly.
+- Only ADD this feature cleanly and safely.
+
+FEATURE NAME:
+Multi-Language Output + Dual Output View
+
+GOAL:
+Upgrade the Live Captions tab so the user can:
+1. choose a target output language
+2. continue seeing the original transcript
+3. see translated output in TWO panes:
+   - English output
+   - selected output language
+
+This means the Live Captions tab should support dual translated outputs at the same time:
+- one fixed English translation
+- one user-selected language translation
+
+CORE BEHAVIOR:
+The app should continue live transcription exactly as it does now.
+For every transcript chunk:
+1. detect source language as already implemented
+2. show original transcript
+3. generate English translation
+4. generate selected output language translation
+5. display both outputs live in near real time
+
+If the selected output language is English:
+- avoid duplicate unnecessary display logic
+- either:
+  - show English once and indicate selected output is English, or
+  - keep both sections but handle gracefully so the UI is not confusing
+
+SUPPORTED OUTPUT LANGUAGES:
+Start with:
+- English
+- Telugu
+- Hindi
+- Tamil
+- Kannada
+- Malayalam
+- Bengali
+- Marathi
+
+Structure the code so more languages can be added easily later.
+
+UI REQUIREMENTS:
+Inside the existing Live Captions tab, add:
+
+1. Output Language selector
+- Label: "Output Language"
+- Default value: English
+
+2. Keep current source-side fields:
+- Detected Language
+- Original Transcript
+
+3. Replace the single translated output area with a Dual Output View:
+- English Translation
+- Selected Language Translation
+
+4. Add a small language direction display if easy:
+- Source: Telugu
+- English: English
+- Output: Hindi
+
+5. Keep the translated output visually clear and polished.
+Suggested order:
+- Detected Language
+- Original Transcript
+- English Translation
+- Selected Language Translation
+
+6. If selected output language is English:
+- handle elegantly
+- do not make the UI look broken or redundant
+
+DEMO / FALLBACK MODE:
+If the app already has Demo Mode or Fallback Mode:
+- add the same Output Language selector there too
+- for manual/sample input, generate:
+  - English translation
+  - selected language translation
+- preserve all current demo flows
+
+TRANSLATION LOGIC:
+Create or refactor only the translation layer as minimally as possible into reusable helpers such as:
+
+translateText(text, sourceLanguage, targetLanguage)
+
+Then use it for:
+- English translation
+- selected language translation
+
+Requirements:
+- English must always be generated as one output
+- selected language translation must come from the dropdown
+- if source language equals target language, handle gracefully
+- if selected language equals English, handle gracefully
+- avoid unnecessary duplicate calls where possible
+
+LANGUAGE MAPPING:
+Create a maintainable mapping between UI labels and language codes, for example:
+- English -> en
+- Telugu -> te
+- Hindi -> hi
+- Tamil -> ta
+- Kannada -> kn
+- Malayalam -> ml
+- Bengali -> bn
+- Marathi -> mr
+
+If the provider needs locale codes, handle that internally but keep the UI labels simple.
+
+LIVE MODE REQUIREMENTS:
+When live mode is active:
+- do not reset the transcription session when only output language changes
+- new incoming transcript chunks should use the new selected language immediately
+- keep latency low
+- update both English and selected language outputs smoothly
+
+STATE MANAGEMENT:
+Store and update these safely:
+- detectedLanguage
+- originalTranscript
+- englishTranslation
+- selectedOutputLanguage
+- selectedLanguageTranslation
+
+If safe and easy:
+- persist selected output language in localStorage
+
+OPTIONAL NICE-TO-HAVE:
+If easy and low-risk, add:
+- Copy English button
+- Copy Selected Language button
+- Save both outputs to history
+- timestamps for each caption block
+
+ERROR HANDLING:
+Handle gracefully and without crashing:
+- unsupported language pair
+- translation provider failure
+- same source and target language
+- selected language equals English
+- empty transcript
+- missing detected language
+- partial transcript states
+- no speech detected
+
+Show user-friendly messages only within the Live Captions tab.
+
+PERFORMANCE REQUIREMENTS:
+- avoid excessive re-renders
+- avoid resetting mic/audio streams unnecessarily
+- avoid memory leaks
+- clean up listeners on stop/unmount
+- keep mobile browser usability intact
+
+CODE ORGANIZATION:
+Keep implementation isolated and maintainable:
+- minimally modify the existing Live Captions tab component
+- add translation helper/module if needed
+- add language constants file if helpful
+- do not touch unrelated files
+- clearly comment only the important integration points
+
+OUTPUT REQUIRED:
+Provide:
+1. full code changes
+2. files modified
+3. files added
+4. where the Output Language selector was inserted
+5. where the Dual Output View was inserted
+
+Ensure the app runs after changes.
+Keep code paste-ready.
+
+USER EXPERIENCE GOAL:
+The user should be able to:
+- speak in any supported source language
+- see original transcript live
+- always see English translation
+- also see translation in one selected target language
+- switch the selected language without disturbing existing functionality
+
+Again: implement this safely and non-destructively, without breaking anything already working in the Voice Persona app.
