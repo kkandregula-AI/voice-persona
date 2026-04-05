@@ -344,7 +344,7 @@ export default function LiveCaptionsTab() {
         ) {
           try { recorderRef.current.requestData(); } catch {}
         }
-      }, 4000);
+      }, 10000);
     } catch (err) {
       listeningRef.current = false;
       const msg = err instanceof Error ? err.message : "Microphone access denied";
