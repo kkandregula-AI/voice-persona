@@ -96,17 +96,17 @@ router.post("/live-captions/transcribe", upload.single("audio"), async (req, res
 
     const result = await openai.audio.transcriptions.create({
       file: audioFile,
-      model: "gpt-4o-mini-transcribe",
+      model: "whisper-1",
       response_format: "verbose_json",
     } as Parameters<typeof openai.audio.transcriptions.create>[0]);
 
     const raw = result as unknown as { language?: string; text?: string };
     const langCode = raw.language ?? "";
     return res.json({
-      text: raw.text ?? result.text ?? "",
+      text: raw.text ?? (result as unknown as { text: string }).text ?? "",
       languageCode: langCode,
       languageLabel: getLangLabel(langCode),
-      languageProbability: 0.8,
+      languageProbability: 0.85,
       source: "openai",
     });
   } catch (err) {
