@@ -1,0 +1,160 @@
+Add a NEW feature tab to the existing Voice Persona app called "Live Captions" without disturbing, removing, renaming, restyling, or breaking any existing tabs, routes, components, or functionality.
+
+IMPORTANT RULES:
+- Do NOT modify existing working tabs or their logic.
+- Only ADD a new self-contained tab and supporting files.
+- Keep the existing app behavior exactly as it is.
+- Reuse the current design system/styles so the new tab looks native to the app.
+- Make the new tab mobile-friendly.
+
+NEW TAB NAME:
+Live Captions
+
+GOAL:
+Capture live microphone audio, stream it for real-time transcription using ElevenLabs, automatically detect the spoken language when possible, and display instant captions below. The app should also translate the transcript into English and show that English caption as the main output.
+
+FEATURE BEHAVIOR:
+1. Add a new tab button labeled "Live Captions".
+2. On this tab, create:
+   - Start Listening button
+   - Stop Listening button
+   - Live status indicator: Idle / Listening / Processing / Error
+   - Small settings section
+   - Caption panel with:
+     - Detected Language
+     - Original Transcript
+     - English Translation
+3. The English Translation should be visually emphasized as the main caption output.
+4. Update captions continuously in near real time as speech is received.
+5. Show partial transcript updates smoothly without page refresh.
+
+SETTINGS / KEYS:
+Support 2 modes inside this tab:
+
+MODE A: User Key Mode
+- Add optional inputs:
+  - ElevenLabs API Key
+- Add a button:
+  - Save Key
+- Store the key only locally in browser localStorage for that device/session.
+- Do NOT hardcode the key in frontend code.
+- If a key is present, enable live transcription.
+
+MODE B: Demo / Fallback Mode
+- If no ElevenLabs key is provided, do not break the feature.
+- Show Demo Mode with:
+  - sample multilingual text choices
+  - manual text input
+  - source language selector
+  - translate to English button
+- Demo mode should let users test the UI even without a key.
+
+AUDIO CAPTURE:
+- Use browser microphone access with getUserMedia.
+- Capture audio continuously with a browser-safe implementation.
+- Prefer a streaming-friendly approach.
+- If true streaming is difficult in-browser, implement short chunk upload flow with low latency.
+- Gracefully handle permission denied, no microphone, silence, and unsupported browser states.
+
+ELEVENLABS INTEGRATION:
+- Use ElevenLabs realtime speech-to-text / transcription flow for live microphone transcription.
+- Build the integration so it can accept the user-provided ElevenLabs API key dynamically.
+- If the ElevenLabs integration requires a backend relay for security or streaming stability, create a backend route inside the same Replit project.
+- Keep the implementation production-minded and cleanly separated.
+
+TRANSLATION TO ENGLISH:
+- After receiving transcript text, translate it to English.
+- Make this translation modular so it can be swapped later.
+- For now, implement one of these safe approaches:
+  1. existing backend translation helper if already present in the project, or
+  2. a dedicated translation utility/module, or
+  3. a demo translation fallback for test mode.
+- The output UI must always aim to show English translation as the main caption line.
+- If source text is already English, show it as English Translation too.
+
+LANGUAGE DETECTION:
+- Detect the source language from transcription metadata if ElevenLabs provides it.
+- If not available, infer via a helper function/module.
+- Show language label like:
+  - English
+  - Telugu
+  - Hindi
+  - Tamil
+  - Kannada
+  - Malayalam
+  - Bengali
+  - Marathi
+  - Unknown
+- If confidence is low, show "Detecting..." or "Unknown".
+
+UI DETAILS:
+Create a polished caption interface:
+- Header: Live Captions
+- Status badge
+- Key/settings card
+- Mic controls row
+- Caption box with:
+  - Detected Language
+  - Original Transcript
+  - English Translation
+- Optional actions:
+  - Copy Caption
+  - Clear
+  - Save to History
+
+If easy, add:
+- Auto-scroll for new caption lines
+- Timestamp for each caption update
+- Save latest session to local history
+
+TECHNICAL STRUCTURE:
+- Add only the minimum new files needed.
+- Clearly separate:
+  - UI tab component
+  - microphone/audio capture utility
+  - live caption service
+  - translation helper
+  - optional backend API route
+- Keep names readable and maintainable.
+- Comment important integration areas only where needed.
+
+NON-DESTRUCTIVE REQUIREMENT:
+Do not refactor unrelated parts of the app.
+Do not change the structure of existing tabs unless required only to register the new tab.
+Do not remove any current feature.
+Do not change existing styles globally in a way that affects current screens.
+
+ERROR HANDLING:
+Handle all of these gracefully:
+- missing ElevenLabs key
+- invalid key
+- microphone permission denied
+- no speech detected
+- transcription service unavailable
+- translation failure
+- browser not supported
+Show user-friendly messages in the tab without crashing the app.
+
+PERFORMANCE:
+- Keep latency low
+- Avoid excessive re-renders
+- Clean up audio streams properly on stop/unmount
+- Prevent memory leaks
+- Ensure mobile browser usability as much as possible
+
+HISTORY INTEGRATION:
+If the app already has a History section or local saved items feature, add an optional "Save to History" action from Live Captions without breaking the current history logic.
+If that is risky, keep Live Captions history local to this tab only.
+
+OUTPUT REQUIRED:
+- Full working code changes
+- Mention all newly added files
+- Mention all modified existing files
+- Keep paste-ready code
+- Ensure the app runs after changes
+
+USER EXPERIENCE REQUIREMENT:
+This should feel like a natural new capability inside Voice Persona:
+speaker talks → transcript appears → English caption appears instantly below.
+
+Please implement carefully and preserve all current functionality.

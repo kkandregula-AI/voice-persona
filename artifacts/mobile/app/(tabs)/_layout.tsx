@@ -77,6 +77,13 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="livecaptions"
+        options={{
+          title: "Captions",
+          tabBarIcon: ({ color }) => <Feather name="activity" size={20} color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="history"
         options={{
           title: "History",
