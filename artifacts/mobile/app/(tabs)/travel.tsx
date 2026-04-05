@@ -43,24 +43,69 @@ const ACCENT_TRAVEL_BORDER = "#10B98155";
 type Language = { code: string; label: string; flag: string; name: string };
 
 const LANGUAGES: Language[] = [
-  { code: "en-US", label: "English",    flag: "🇺🇸", name: "English"    },
-  { code: "es-ES", label: "Spanish",    flag: "🇪🇸", name: "Spanish"    },
-  { code: "fr-FR", label: "French",     flag: "🇫🇷", name: "French"     },
-  { code: "de-DE", label: "German",     flag: "🇩🇪", name: "German"     },
-  { code: "it-IT", label: "Italian",    flag: "🇮🇹", name: "Italian"    },
-  { code: "pt-BR", label: "Portuguese", flag: "🇧🇷", name: "Portuguese" },
-  { code: "ja-JP", label: "Japanese",   flag: "🇯🇵", name: "Japanese"   },
-  { code: "zh-CN", label: "Chinese",    flag: "🇨🇳", name: "Chinese"    },
-  { code: "ko-KR", label: "Korean",     flag: "🇰🇷", name: "Korean"     },
-  { code: "ar-SA", label: "Arabic",     flag: "🇸🇦", name: "Arabic"     },
-  { code: "hi-IN", label: "Hindi",      flag: "🇮🇳", name: "Hindi"      },
-  { code: "ru-RU", label: "Russian",    flag: "🇷🇺", name: "Russian"    },
-  { code: "nl-NL", label: "Dutch",      flag: "🇳🇱", name: "Dutch"      },
-  { code: "tr-TR", label: "Turkish",    flag: "🇹🇷", name: "Turkish"    },
-  { code: "pl-PL", label: "Polish",     flag: "🇵🇱", name: "Polish"     },
-  { code: "th-TH", label: "Thai",       flag: "🇹🇭", name: "Thai"       },
-  { code: "vi-VN", label: "Vietnamese", flag: "🇻🇳", name: "Vietnamese" },
-  { code: "id-ID", label: "Indonesian", flag: "🇮🇩", name: "Indonesian" },
+  // ── Global ─────────────────────────────────────────────────────────────────
+  { code: "en-US", label: "English",     flag: "🇺🇸", name: "English"     },
+  { code: "es-ES", label: "Spanish",     flag: "🇪🇸", name: "Spanish"     },
+  { code: "fr-FR", label: "French",      flag: "🇫🇷", name: "French"      },
+  { code: "de-DE", label: "German",      flag: "🇩🇪", name: "German"      },
+  { code: "it-IT", label: "Italian",     flag: "🇮🇹", name: "Italian"     },
+  { code: "pt-BR", label: "Portuguese",  flag: "🇧🇷", name: "Portuguese"  },
+  { code: "ja-JP", label: "Japanese",    flag: "🇯🇵", name: "Japanese"    },
+  { code: "zh-CN", label: "Chinese",     flag: "🇨🇳", name: "Chinese"     },
+  { code: "ko-KR", label: "Korean",      flag: "🇰🇷", name: "Korean"      },
+  { code: "ar-SA", label: "Arabic",      flag: "🇸🇦", name: "Arabic"      },
+  { code: "ru-RU", label: "Russian",     flag: "🇷🇺", name: "Russian"     },
+  { code: "nl-NL", label: "Dutch",       flag: "🇳🇱", name: "Dutch"       },
+  { code: "tr-TR", label: "Turkish",     flag: "🇹🇷", name: "Turkish"     },
+  { code: "pl-PL", label: "Polish",      flag: "🇵🇱", name: "Polish"      },
+  { code: "th-TH", label: "Thai",        flag: "🇹🇭", name: "Thai"        },
+  { code: "vi-VN", label: "Vietnamese",  flag: "🇻🇳", name: "Vietnamese"  },
+  { code: "id-ID", label: "Indonesian",  flag: "🇮🇩", name: "Indonesian"  },
+  { code: "ms-MY", label: "Malay",       flag: "🇲🇾", name: "Malay"       },
+  { code: "tl-PH", label: "Filipino",    flag: "🇵🇭", name: "Filipino"    },
+  { code: "uk-UA", label: "Ukrainian",   flag: "🇺🇦", name: "Ukrainian"   },
+  { code: "cs-CZ", label: "Czech",       flag: "🇨🇿", name: "Czech"       },
+  { code: "ro-RO", label: "Romanian",    flag: "🇷🇴", name: "Romanian"    },
+  { code: "hu-HU", label: "Hungarian",   flag: "🇭🇺", name: "Hungarian"   },
+  { code: "el-GR", label: "Greek",       flag: "🇬🇷", name: "Greek"       },
+  { code: "sv-SE", label: "Swedish",     flag: "🇸🇪", name: "Swedish"     },
+  { code: "da-DK", label: "Danish",      flag: "🇩🇰", name: "Danish"      },
+  { code: "fi-FI", label: "Finnish",     flag: "🇫🇮", name: "Finnish"     },
+  { code: "nb-NO", label: "Norwegian",   flag: "🇳🇴", name: "Norwegian"   },
+  { code: "sk-SK", label: "Slovak",      flag: "🇸🇰", name: "Slovak"      },
+  { code: "bg-BG", label: "Bulgarian",   flag: "🇧🇬", name: "Bulgarian"   },
+  { code: "hr-HR", label: "Croatian",    flag: "🇭🇷", name: "Croatian"    },
+  { code: "sr-RS", label: "Serbian",     flag: "🇷🇸", name: "Serbian"     },
+  { code: "he-IL", label: "Hebrew",      flag: "🇮🇱", name: "Hebrew"      },
+  { code: "fa-IR", label: "Persian",     flag: "🇮🇷", name: "Persian"     },
+  { code: "sw-KE", label: "Swahili",     flag: "🇰🇪", name: "Swahili"     },
+  { code: "af-ZA", label: "Afrikaans",   flag: "🇿🇦", name: "Afrikaans"   },
+  { code: "ca-ES", label: "Catalan",     flag: "🏳️",   name: "Catalan"     },
+  { code: "cy-GB", label: "Welsh",       flag: "🏴󠁧󠁢󠁷󠁬󠁳󠁿", name: "Welsh"       },
+  { code: "ka-GE", label: "Georgian",    flag: "🇬🇪", name: "Georgian"    },
+  { code: "hy-AM", label: "Armenian",    flag: "🇦🇲", name: "Armenian"    },
+  { code: "az-AZ", label: "Azerbaijani", flag: "🇦🇿", name: "Azerbaijani" },
+  { code: "kk-KZ", label: "Kazakh",      flag: "🇰🇿", name: "Kazakh"      },
+  { code: "uz-UZ", label: "Uzbek",       flag: "🇺🇿", name: "Uzbek"       },
+  { code: "sq-AL", label: "Albanian",    flag: "🇦🇱", name: "Albanian"    },
+  // ── Indian Languages ───────────────────────────────────────────────────────
+  { code: "hi-IN", label: "Hindi",       flag: "🇮🇳", name: "Hindi"       },
+  { code: "bn-BD", label: "Bengali",     flag: "🇧🇩", name: "Bengali"     },
+  { code: "ta-IN", label: "Tamil",       flag: "🇮🇳", name: "Tamil"       },
+  { code: "te-IN", label: "Telugu",      flag: "🇮🇳", name: "Telugu"      },
+  { code: "mr-IN", label: "Marathi",     flag: "🇮🇳", name: "Marathi"     },
+  { code: "gu-IN", label: "Gujarati",    flag: "🇮🇳", name: "Gujarati"    },
+  { code: "kn-IN", label: "Kannada",     flag: "🇮🇳", name: "Kannada"     },
+  { code: "ml-IN", label: "Malayalam",   flag: "🇮🇳", name: "Malayalam"   },
+  { code: "pa-IN", label: "Punjabi",     flag: "🇮🇳", name: "Punjabi"     },
+  { code: "ur-PK", label: "Urdu",        flag: "🇵🇰", name: "Urdu"        },
+  { code: "or-IN", label: "Odia",        flag: "🇮🇳", name: "Odia"        },
+  { code: "as-IN", label: "Assamese",    flag: "🇮🇳", name: "Assamese"    },
+  { code: "ne-NP", label: "Nepali",      flag: "🇳🇵", name: "Nepali"      },
+  { code: "si-LK", label: "Sinhala",     flag: "🇱🇰", name: "Sinhala"     },
+  { code: "sd-PK", label: "Sindhi",      flag: "🇵🇰", name: "Sindhi"      },
+  { code: "mai",   label: "Maithili",    flag: "🇮🇳", name: "Maithili"    },
+  { code: "sa-IN", label: "Sanskrit",    flag: "🇮🇳", name: "Sanskrit"    },
 ];
 
 const QUICK_PHRASES = [
@@ -74,7 +119,7 @@ const QUICK_PHRASES = [
   "I am lost.",
 ];
 
-type Mode = "speak" | "listen" | "live";
+type Mode = "speak" | "listen" | "live" | "translate";
 type Status = "idle" | "listening" | "processing" | "speaking";
 
 type LiveLine = {
@@ -552,13 +597,18 @@ export default function TravelTalkScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversation, liveLines]);
 
-  const sourceLang = mode === "speak" ? myLang : theirLang;
-  const targetLang = mode === "speak" ? theirLang : myLang;
+  const sourceLang = (mode === "speak" || mode === "translate") ? myLang : theirLang;
+  const targetLang = (mode === "speak" || mode === "translate") ? theirLang : myLang;
   const statusLabel =
-    status === "listening" ? (onIOS ? "Recording… Tap again to stop" : mode === "speak" ? "Listening to you…" : "Listening to them…") :
-    status === "processing" ? (onIOS ? "Transcribing…" : "Translating…") :
-    status === "speaking" ? "Speaking translation…" :
-    mode === "speak" ? (onIOS ? "Tap to record" : "Tap to speak") : (onIOS ? "Tap to record them" : "Tap to listen");
+    status === "listening"
+      ? (onIOS ? "Recording… Tap again to stop"
+          : mode === "listen" ? "Listening to them…"
+          : "Listening…")
+      : status === "processing" ? (onIOS ? "Transcribing…" : "Translating…")
+      : status === "speaking" ? "Speaking translation…"
+      : mode === "listen" ? (onIOS ? "Tap to record them" : "Tap to listen")
+      : mode === "translate" ? (onIOS ? "Tap to record" : "Tap to speak — text only")
+      : (onIOS ? "Tap to record" : "Tap to speak");
 
   const handleSwap = () => {
     setMyLang(theirLang);
@@ -660,14 +710,18 @@ export default function TravelTalkScreen() {
       const result = await translateText(text, sourceLang.code, targetLang.code);
       if (sessionRef.current !== sid) return;
       setTranslation(result);
-      setStatus("speaking");
-      speakText(result, targetLang.code);
-      const speakMs = Math.max(3000, result.length * 75);
-      setTimeout(() => { if (sessionRef.current === sid) setStatus("idle"); }, speakMs);
+      if (mode !== "translate") {
+        setStatus("speaking");
+        speakText(result, targetLang.code);
+        const speakMs = Math.max(3000, result.length * 75);
+        setTimeout(() => { if (sessionRef.current === sid) setStatus("idle"); }, speakMs);
+      } else {
+        setStatus("idle");
+      }
       setConversation((prev) => [
         {
           id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
-          speaker: (mode === "speak" ? "you" : "them") as "you" | "them",
+          speaker: (mode === "speak" || mode === "translate" ? "you" : "them") as "you" | "them",
           original: text,
           translated: result,
           originalLang: sourceLang.label,
@@ -1216,6 +1270,31 @@ export default function TravelTalkScreen() {
           </Pressable>
         </View>
 
+        {/* Quick Translate — full-width 4th mode button */}
+        <Pressable
+          style={[styles.quickTranslateBtn, mode === "translate" && styles.quickTranslateBtnActive]}
+          onPress={() => { setMode("translate"); setTranscript(""); setTranslation(""); setError(""); }}
+        >
+          <View style={styles.quickTranslateBtnLeft}>
+            <Feather name="type" size={16} color={mode === "translate" ? "#00D4FF" : Colors.textSecondary} />
+            <View>
+              <Text style={[styles.quickTranslateBtnTitle, mode === "translate" && { color: "#00D4FF" }]}>
+                Quick Translate
+              </Text>
+              <Text style={styles.quickTranslateBtnHint}>
+                Speak any language · 60+ supported · Text only, no playback
+              </Text>
+            </View>
+          </View>
+          {mode === "translate" ? (
+            <View style={styles.quickTranslateActiveChip}>
+              <Text style={styles.quickTranslateActiveText}>ACTIVE</Text>
+            </View>
+          ) : (
+            <Feather name="chevron-right" size={14} color={Colors.textTertiary} />
+          )}
+        </Pressable>
+
         {/* Live Conversation — only shown in live mode */}
         {mode === "live" && (
           <Animated.View entering={FadeInDown} style={styles.livePanel}>
@@ -1396,13 +1475,19 @@ export default function TravelTalkScreen() {
         )}
 
         {/* Main interaction card */}
-        {mode !== "live" && (
+        {(mode === "speak" || mode === "listen" || mode === "translate") && (
         <View style={styles.interactCard}>
           <Text style={styles.modeContext}>
-            {mode === "speak"
+            {(mode === "speak" || mode === "translate")
               ? `${myLang.flag} ${myLang.label} → ${theirLang.flag} ${theirLang.label}`
               : `${theirLang.flag} ${theirLang.label} → ${myLang.flag} ${myLang.label}`}
           </Text>
+          {mode === "translate" && (
+            <View style={styles.translateTextOnlyBadge}>
+              <Feather name="eye-off" size={10} color="#00D4FF" />
+              <Text style={styles.translateTextOnlyText}>Text only · No audio playback</Text>
+            </View>
+          )}
 
           {/* Mic button */}
           <Pressable
@@ -1455,17 +1540,19 @@ export default function TravelTalkScreen() {
                       </Text>
                     </View>
                     <View style={styles.showToThemBadge}>
-                      <Feather name="eye" size={11} color={ACCENT_TRAVEL} />
-                      <Text style={styles.showToThemText}>
-                        {mode === "speak" ? "Show to them" : "Your translation"}
+                      <Feather name={mode === "translate" ? "eye-off" : "eye"} size={11} color={mode === "translate" ? "#00D4FF" : ACCENT_TRAVEL} />
+                      <Text style={[styles.showToThemText, mode === "translate" && { color: "#00D4FF" }]}>
+                        {mode === "speak" ? "Show to them" : mode === "translate" ? "Translation" : "Your translation"}
                       </Text>
                     </View>
                   </View>
                   <Text style={styles.translationTextLarge}>{translation}</Text>
-                  <Pressable onPress={handleSpeak} style={styles.speakBtn}>
-                    <Feather name="volume-2" size={15} color="#fff" />
-                    <Text style={styles.speakBtnText}>Speak Again</Text>
-                  </Pressable>
+                  {mode !== "translate" && (
+                    <Pressable onPress={handleSpeak} style={styles.speakBtn}>
+                      <Feather name="volume-2" size={15} color="#fff" />
+                      <Text style={styles.speakBtnText}>Speak Again</Text>
+                    </Pressable>
+                  )}
                 </Animated.View>
               )}
             </Animated.View>
@@ -1686,6 +1773,68 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     color: Colors.textSecondary,
+  },
+
+  quickTranslateBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    backgroundColor: Colors.card,
+    marginBottom: 14,
+  },
+  quickTranslateBtnActive: {
+    backgroundColor: "#00D4FF12",
+    borderColor: "#00D4FF55",
+  },
+  quickTranslateBtnLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    flex: 1,
+  },
+  quickTranslateBtnTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: Colors.textSecondary,
+  },
+  quickTranslateBtnHint: {
+    fontSize: 10,
+    color: Colors.textTertiary,
+    marginTop: 2,
+  },
+  quickTranslateActiveChip: {
+    backgroundColor: "#00D4FF22",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  quickTranslateActiveText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#00D4FF",
+    letterSpacing: 0.5,
+  },
+  translateTextOnlyBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "#00D4FF12",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: "#00D4FF33",
+    alignSelf: "center",
+  },
+  translateTextOnlyText: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: "#00D4FF",
   },
 
   interactCard: {
