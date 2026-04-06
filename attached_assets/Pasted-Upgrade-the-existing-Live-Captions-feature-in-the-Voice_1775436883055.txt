@@ -1,0 +1,217 @@
+Upgrade the existing "Live Captions" feature in the Voice Persona app and rename it to "Live Interpreter", WITHOUT disturbing, changing, refactoring, removing, or breaking any other existing tabs, routes, components, styling, integrations, or working functionality.
+
+CRITICAL NON-DESTRUCTIVE RULES:
+- Do NOT touch other tabs except only what is required to replace the visible tab name from "Live Captions" to "Live Interpreter".
+- Do NOT disturb existing functionality in Voice Studio, Creator Mode, Travel Talk, History Library, or any other current tab.
+- Do NOT rewrite unrelated code.
+- Do NOT change any existing working feature unless absolutely necessary for this specific upgrade.
+- Preserve current styling, layout consistency, and mobile responsiveness.
+- Only enhance the current Live Captions feature and rename it to Live Interpreter.
+
+FEATURE NAME:
+Live Interpreter
+
+PRIMARY GOAL:
+The user speaks in a source/native language.
+The app listens for a default 10-second speech window, transcribes the original speech, translates it into one or more selected target languages, and gives the option to hear each translation spoken aloud in that target language.
+
+DEFAULT INTERPRETATION WINDOW:
+- By default, when the user clicks Start Listening, the app should listen for 10 seconds.
+- After 10 seconds, stop capturing automatically and process the spoken content.
+- Make 10 seconds the default behavior.
+- If safe and easy, keep this duration configurable internally for future changes, but do not expose unnecessary controls unless already consistent with the current UI.
+- Show a small note or status like:
+  "Listening for 10 seconds..."
+- Also allow manual stop before 10 seconds if the user clicks Stop.
+
+TAB NAME UPDATE:
+- Replace the visible tab label "Live Captions" with "Live Interpreter"
+- If renaming internal route/component names is risky, keep internal identifiers as-is but update the user-facing label to "Live Interpreter"
+- Do not break navigation
+
+CORE USER FLOW:
+1. User opens the "Live Interpreter" tab
+2. User selects one or more target languages
+3. User clicks Start Listening
+4. App listens for up to 10 seconds by default
+5. App transcribes the original/source speech
+6. App detects source language if possible
+7. App translates the result into all selected target languages
+8. App displays:
+   - Detected Language
+   - Original Transcript
+   - Translation cards for each selected target language
+9. Each translation card includes a Speak button so the translated text can be spoken aloud in that language
+
+SOURCE SIDE OUTPUT:
+Show:
+- Detected Language
+- Original Transcript
+- Listening Status
+- Optional countdown or progress indicator during the 10-second listening window
+
+TARGET LANGUAGES:
+Allow the user to choose multiple target languages dynamically.
+
+LANGUAGE LIST REQUIREMENT:
+- Include the existing Indian languages already planned for Live Interpreter
+- Also include the same 18 international languages already used in the Travel Talk feature
+- Reuse the Travel Talk language list/config if it already exists, instead of duplicating logic
+- Keep the language definitions centralized and maintainable
+- Group the target language list in the UI as:
+  1. Indian Languages
+  2. International Languages
+
+INDIAN LANGUAGES:
+- English
+- Telugu
+- Hindi
+- Tamil
+- Kannada
+- Malayalam
+- Bengali
+- Marathi
+
+INTERNATIONAL LANGUAGES:
+- Add the same 18 international languages already available in Travel Talk
+- Reuse the exact same labels/codes from Travel Talk if possible for consistency
+
+FUTURE EXPANSION NOTE:
+Add a small UI note in the Live Interpreter language selection area:
+"More languages will be added in future updates."
+
+TARGET LANGUAGE SELECTION UI:
+Add a section:
+- Label: Target Languages
+- Dropdown/select to choose a language
+- Add button
+- Show selected languages as chips/cards
+- Each selected language should have remove option
+- Prevent duplicate language selection
+- Default selected target language can be English
+- Group the dropdown options clearly under Indian Languages and International Languages if the UI component supports grouped options
+
+TRANSLATION OUTPUT UI:
+For each selected target language, show a separate translation card with:
+- language name
+- translated text
+- Speak button
+- optional Copy button
+- optional Remove button
+
+If source language equals target language:
+- show the original text in that card
+- avoid unnecessary translation call if possible
+
+SPEAK BUTTON / AUDIO OUTPUT:
+Each target language card must include a Speak button.
+
+When clicked:
+- speak the translated text in that selected target language
+- use the app’s existing TTS/provider if already available
+- if the current app already uses ElevenLabs or another TTS integration, reuse it safely
+- if no TTS is available for a language, use a fallback browser speech synthesis approach if possible
+- handle unsupported voices gracefully
+- avoid chaotic overlapping playback
+- if one translation is already playing and another Speak button is clicked, either stop the current playback first or manage playback cleanly
+
+TRANSCRIPTION / TRANSLATION LOGIC:
+- Preserve the current live transcription logic if already implemented
+- Adapt it to work with the 10-second default listening window
+- After the capture window completes, process transcript and translations
+- Translate the original transcript into all selected target languages
+- Update translation cards without page reload
+- Keep code modular
+
+STATE MANAGEMENT:
+Maintain safe state for:
+- listening status
+- countdown / timer for 10 seconds
+- detected source language
+- original transcript
+- selected target languages
+- translations by language
+- current playback state
+- errors
+
+Suggested structure:
+translationsByLanguage = {
+  en: { label: "English", text: "..." },
+  hi: { label: "Hindi", text: "..." },
+  ta: { label: "Tamil", text: "..." }
+}
+
+DEMO / FALLBACK MODE:
+If the existing feature already has a demo or fallback mode:
+- preserve it
+- update it to match the new "Live Interpreter" naming
+- allow multi-language translation in fallback mode too
+- allow translated cards for all selected target languages
+- include Speak button where possible
+
+SETTINGS / KEYS:
+- Preserve existing key handling if already implemented
+- Do not expose keys insecurely
+- Do not hardcode secrets in frontend
+- Do not change existing settings behavior unless required for this feature
+
+PERFORMANCE REQUIREMENTS:
+- keep other tabs untouched
+- do not create regressions in existing app
+- avoid excessive re-renders
+- clean up microphone stream and timers after stop/unmount
+- keep mobile usability strong
+- process translations efficiently for multiple target languages
+
+ERROR HANDLING:
+Handle gracefully inside this tab only:
+- microphone permission denied
+- no speech detected in 10 seconds
+- transcription failure
+- translation failure for one or more languages
+- TTS unavailable
+- duplicate language selection
+- empty transcript
+- invalid listening state
+
+Show user-friendly messages inside the Live Interpreter tab without crashing the app.
+
+CODE ORGANIZATION:
+- Make only the minimum required modifications
+- Keep the implementation isolated to this feature
+- If helpful, add:
+  - language constants file
+  - translation helper
+  - TTS helper
+  - countdown/timer helper
+- Avoid touching unrelated files
+- Comment only important integration points
+
+OUTPUT REQUIRED:
+Provide:
+1. full code changes
+2. files modified
+3. files added
+4. where the visible tab name was changed from Live Captions to Live Interpreter
+5. where the 10-second listening window was implemented
+6. where target language multi-select was added
+7. where Travel Talk language list was reused or imported
+8. where translation cards were added
+9. where speak-button logic was added
+10. where the future language expansion note was added
+
+VERY IMPORTANT FINAL RULE:
+Existing functionality in all other tabs must remain exactly the same and must not be touched except where absolutely necessary for registering or relabeling this tab.
+
+USER EXPERIENCE GOAL:
+The user should be able to:
+- open Live Interpreter
+- choose one or more target languages
+- see Indian and international language options
+- know that more languages are planned in future
+- speak for up to 10 seconds by default
+- see original transcript in source language
+- see translated text for each chosen target language
+- click Speak on any translation to hear it in that target language
+
+Implement this safely and non-destructively, without affecting any other tab functionality.

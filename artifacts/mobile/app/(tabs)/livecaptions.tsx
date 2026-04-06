@@ -14,34 +14,66 @@ import Animated, { FadeInDown, FadeInUp } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors } from "@/constants/colors";
 
-// ── Constants ──────────────────────────────────────────────────────────────
-
+// ── Accent colors ───────────────────────────────────────────────────────────
 const ACCENT_LIVE = "#22C55E";
 const ACCENT_LIVE_DIM = "#22C55E18";
 const ACCENT_LIVE_BORDER = "#22C55E44";
+
+// ── Storage keys ────────────────────────────────────────────────────────────
 const STORAGE_KEY_EL_KEY = "lc_el_key_v1";
 const STORAGE_KEY_HISTORY = "lc_history_v1";
-const STORAGE_KEY_OUTPUT_LANG = "lc_output_lang_v1";
+const STORAGE_KEY_TARGET_LANGS = "lc_target_langs_v1";
 
-// Output language options — add more codes here to expand the list
-const OUTPUT_LANG_OPTIONS: { code: string; label: string }[] = [
-  { code: "en", label: "English" },
-  { code: "te", label: "Telugu" },
-  { code: "hi", label: "Hindi" },
-  { code: "ta", label: "Tamil" },
-  { code: "kn", label: "Kannada" },
-  { code: "ml", label: "Malayalam" },
-  { code: "bn", label: "Bengali" },
-  { code: "mr", label: "Marathi" },
-  { code: "gu", label: "Gujarati" },
-  { code: "pa", label: "Punjabi" },
-  { code: "es", label: "Spanish" },
-  { code: "fr", label: "French" },
-  { code: "de", label: "German" },
-  { code: "ar", label: "Arabic" },
-  { code: "ja", label: "Japanese" },
-  { code: "zh", label: "Chinese" },
+// ── Language definitions ────────────────────────────────────────────────────
+// Indian languages (reused from Travel Talk, same codes)
+const INDIAN_LANG_OPTIONS: { code: string; label: string; flag: string }[] = [
+  { code: "en", label: "English",   flag: "🇺🇸" },
+  { code: "te", label: "Telugu",    flag: "🇮🇳" },
+  { code: "hi", label: "Hindi",     flag: "🇮🇳" },
+  { code: "ta", label: "Tamil",     flag: "🇮🇳" },
+  { code: "kn", label: "Kannada",   flag: "🇮🇳" },
+  { code: "ml", label: "Malayalam", flag: "🇮🇳" },
+  { code: "bn", label: "Bengali",   flag: "🇧🇩" },
+  { code: "mr", label: "Marathi",   flag: "🇮🇳" },
 ];
+
+// International languages — same 18 used in Travel Talk
+const INTL_LANG_OPTIONS: { code: string; label: string; flag: string }[] = [
+  { code: "es", label: "Spanish",    flag: "🇪🇸" },
+  { code: "fr", label: "French",     flag: "🇫🇷" },
+  { code: "de", label: "German",     flag: "🇩🇪" },
+  { code: "it", label: "Italian",    flag: "🇮🇹" },
+  { code: "pt", label: "Portuguese", flag: "🇧🇷" },
+  { code: "ja", label: "Japanese",   flag: "🇯🇵" },
+  { code: "zh", label: "Chinese",    flag: "🇨🇳" },
+  { code: "ko", label: "Korean",     flag: "🇰🇷" },
+  { code: "ar", label: "Arabic",     flag: "🇸🇦" },
+  { code: "ru", label: "Russian",    flag: "🇷🇺" },
+  { code: "nl", label: "Dutch",      flag: "🇳🇱" },
+  { code: "tr", label: "Turkish",    flag: "🇹🇷" },
+  { code: "pl", label: "Polish",     flag: "🇵🇱" },
+  { code: "th", label: "Thai",       flag: "🇹🇭" },
+  { code: "vi", label: "Vietnamese", flag: "🇻🇳" },
+  { code: "id", label: "Indonesian", flag: "🇮🇩" },
+  { code: "ms", label: "Malay",      flag: "🇲🇾" },
+  { code: "tl", label: "Filipino",   flag: "🇵🇭" },
+];
+
+// Combined lookup by code
+const ALL_LANG_MAP: Record<string, { label: string; flag: string }> = {};
+[...INDIAN_LANG_OPTIONS, ...INTL_LANG_OPTIONS].forEach((l) => {
+  ALL_LANG_MAP[l.code] = { label: l.label, flag: l.flag };
+});
+
+// BCP-47 tags for Web Speech API (Speak button)
+const SPEECH_LANG_MAP: Record<string, string> = {
+  en: "en-US", hi: "hi-IN", te: "te-IN", ta: "ta-IN", kn: "kn-IN",
+  ml: "ml-IN", bn: "bn-BD", mr: "mr-IN", gu: "gu-IN", pa: "pa-IN",
+  es: "es-ES", fr: "fr-FR", de: "de-DE", it: "it-IT", pt: "pt-BR",
+  ja: "ja-JP", zh: "zh-CN", ko: "ko-KR", ar: "ar-SA", ru: "ru-RU",
+  nl: "nl-NL", tr: "tr-TR", pl: "pl-PL", th: "th-TH", vi: "vi-VN",
+  id: "id-ID", ms: "ms-MY", tl: "fil-PH",
+};
 
 function getApiBase(): string {
   if (Platform.OS === "web" && typeof window !== "undefined") {
@@ -73,22 +105,27 @@ const LANG_LABELS: Record<string, string> = {
 
 function getLangLabel(code: string): string {
   const c = code?.toLowerCase().split("-")[0] ?? "";
-  return LANG_LABELS[c] ?? code ?? "Unknown";
+  return LANG_LABELS[c] ?? ALL_LANG_MAP[c]?.label ?? code ?? "Unknown";
+}
+
+function getLangFlag(code: string): string {
+  const c = code?.toLowerCase().split("-")[0] ?? "";
+  return LANG_FLAGS[c] ?? ALL_LANG_MAP[c]?.flag ?? "🌐";
 }
 
 const DEMO_SAMPLES = [
-  { lang: "hi", label: "Hindi", text: "नमस्ते, आप कैसे हैं? मैं ठीक हूँ धन्यवाद।" },
-  { lang: "te", label: "Telugu", text: "నమస్కారం, మీరు ఎలా ఉన్నారు?" },
-  { lang: "ta", label: "Tamil", text: "வணக்கம், நீங்கள் எப்படி இருக்கிறீர்கள்?" },
-  { lang: "kn", label: "Kannada", text: "ನಮಸ್ಕಾರ, ನೀವು ಹೇಗಿದ್ದೀರಿ?" },
+  { lang: "hi", label: "Hindi",     text: "नमस्ते, आप कैसे हैं? मैं ठीक हूँ धन्यवाद।" },
+  { lang: "te", label: "Telugu",    text: "నమస్కారం, మీరు ఎలా ఉన్నారు?" },
+  { lang: "ta", label: "Tamil",     text: "வணக்கம், நீங்கள் எப்படி இருக்கிறீர்கள்?" },
+  { lang: "kn", label: "Kannada",   text: "ನಮಸ್ಕಾರ, ನೀವು ಹೇಗಿದ್ದೀರಿ?" },
   { lang: "ml", label: "Malayalam", text: "നമസ്കാരം, സുഖമാണോ?" },
-  { lang: "bn", label: "Bengali", text: "নমস্কার, আপনি কেমন আছেন?" },
-  { lang: "mr", label: "Marathi", text: "नमस्कार, तुम्ही कसे आहात?" },
-  { lang: "es", label: "Spanish", text: "Hola, ¿cómo estás? Estoy muy bien, gracias." },
-  { lang: "fr", label: "French", text: "Bonjour, comment allez-vous? Je suis très bien." },
-  { lang: "ar", label: "Arabic", text: "مرحباً، كيف حالك؟ أنا بخير شكراً." },
-  { lang: "ja", label: "Japanese", text: "こんにちは、お元気ですか？私は元気です。" },
-  { lang: "zh", label: "Chinese", text: "你好，你好吗？我很好，谢谢。" },
+  { lang: "bn", label: "Bengali",   text: "নমস্কার, আপনি কেমন আছেন?" },
+  { lang: "mr", label: "Marathi",   text: "नमस्कार, तुम्ही कसे आहात?" },
+  { lang: "es", label: "Spanish",   text: "Hola, ¿cómo estás? Estoy muy bien, gracias." },
+  { lang: "fr", label: "French",    text: "Bonjour, comment allez-vous? Je suis très bien." },
+  { lang: "ar", label: "Arabic",    text: "مرحباً، كيف حالك؟ أنا بخير شكراً." },
+  { lang: "ja", label: "Japanese",  text: "こんにちは、お元気ですか？私は元気です。" },
+  { lang: "zh", label: "Chinese",   text: "你好，你好吗？我很好，谢谢。" },
 ];
 
 const DEMO_LANG_OPTIONS = [
@@ -102,7 +139,7 @@ const DEMO_LANG_OPTIONS = [
   { code: "zh", label: "Chinese" }, { code: "ru", label: "Russian" },
 ];
 
-// ── Types ──────────────────────────────────────────────────────────────────
+// ── Types ───────────────────────────────────────────────────────────────────
 
 type CaptionStatus = "idle" | "listening" | "processing" | "error";
 
@@ -115,7 +152,10 @@ type CaptionEntry = {
   languageLabel: string;
 };
 
-// ── Storage helpers ────────────────────────────────────────────────────────
+type TranslationState = { text: string; loading: boolean };
+type TranslationsByLang = Record<string, TranslationState>;
+
+// ── Storage helpers ─────────────────────────────────────────────────────────
 
 function loadStoredKey(): string {
   if (typeof localStorage === "undefined") return "";
@@ -139,22 +179,25 @@ function saveHistory(entries: CaptionEntry[]) {
   localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(entries.slice(0, 50)));
 }
 
-function loadOutputLang(): string {
-  if (typeof localStorage === "undefined") return "en";
-  return localStorage.getItem(STORAGE_KEY_OUTPUT_LANG) ?? "en";
+function loadTargetLangs(): string[] {
+  if (typeof localStorage === "undefined") return ["en"];
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_TARGET_LANGS);
+    if (!raw) return ["en"];
+    const parsed = JSON.parse(raw) as string[];
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : ["en"];
+  } catch { return ["en"]; }
 }
 
-function saveOutputLang(lang: string) {
+function saveTargetLangs(langs: string[]) {
   if (typeof localStorage === "undefined") return;
-  localStorage.setItem(STORAGE_KEY_OUTPUT_LANG, lang);
+  localStorage.setItem(STORAGE_KEY_TARGET_LANGS, JSON.stringify(langs));
 }
 
-// ── Audio helpers ──────────────────────────────────────────────────────────
+// ── Audio helpers ────────────────────────────────────────────────────────────
 
 function getBestMimeType(): string {
   if (typeof MediaRecorder === "undefined") return "";
-  // iOS Safari supports only mp4; test it first so we never pass an unsupported
-  // type to the constructor (which throws a NotSupportedError on Safari).
   const candidates = [
     "audio/mp4;codecs=mp4a.40.2",
     "audio/mp4",
@@ -175,13 +218,34 @@ function mimeToExt(mime: string): string {
   return "webm";
 }
 
-// ── Main component ─────────────────────────────────────────────────────────
+// ── TTS helper ───────────────────────────────────────────────────────────────
+
+function speakText(
+  text: string,
+  langCode: string,
+  onStart?: () => void,
+  onEnd?: () => void,
+) {
+  if (typeof window === "undefined" || !window.speechSynthesis) {
+    onEnd?.();
+    return;
+  }
+  window.speechSynthesis.cancel();
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.lang = SPEECH_LANG_MAP[langCode] ?? langCode;
+  utter.onstart = () => onStart?.();
+  utter.onend = () => onEnd?.();
+  utter.onerror = () => onEnd?.();
+  window.speechSynthesis.speak(utter);
+}
+
+// ── Main component ──────────────────────────────────────────────────────────
 
 export default function LiveCaptionsTab() {
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
 
-  // Settings state
+  // Settings
   const [elKey, setElKey] = useState<string>("");
   const [elKeyInput, setElKeyInput] = useState<string>("");
   const [settingsOpen, setSettingsOpen] = useState<boolean>(false);
@@ -193,14 +257,17 @@ export default function LiveCaptionsTab() {
   const [langCode, setLangCode] = useState<string>("");
   const [langLabel, setLangLabel] = useState<string>("");
   const [transcript, setTranscript] = useState<string>("");
-  const [englishCaption, setEnglishCaption] = useState<string>("");
-  const [isTranslating, setIsTranslating] = useState<boolean>(false);
   const [captionTimestamp, setCaptionTimestamp] = useState<string>("");
 
-  // Output language (dual output)
-  const [outputLang, setOutputLang] = useState<string>("en");
-  const [outputLangCaption, setOutputLangCaption] = useState<string>("");
-  const [isTranslatingOutput, setIsTranslatingOutput] = useState<boolean>(false);
+  // Multi-target language translations
+  const [targetLangs, setTargetLangs] = useState<string[]>(["en"]);
+  const [translationsByLang, setTranslationsByLang] = useState<TranslationsByLang>({});
+
+  // Countdown (seconds remaining in current 10s window)
+  const [countdown, setCountdown] = useState<number | null>(null);
+
+  // TTS playback
+  const [speakingLang, setSpeakingLang] = useState<string | null>(null);
 
   // Demo mode
   const [demoText, setDemoText] = useState<string>("");
@@ -215,14 +282,16 @@ export default function LiveCaptionsTab() {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const segmentStartRef = useRef<number | null>(null);
   const activeMimeRef = useRef<string>("");
   const elKeyRef = useRef<string>("");
   const accumulatedRef = useRef<string>("");
-  const accumulatedOutputRef = useRef<string>("");
+  const accumulatedByLangRef = useRef<Record<string, string>>({});
   const listeningRef = useRef<boolean>(false);
-  const outputLangRef = useRef<string>("en");
+  const targetLangsRef = useRef<string[]>(["en"]);
 
-  // Load stored key, history, and output language on mount
+  // Load stored key, history, and target langs on mount
   useEffect(() => {
     const stored = loadStoredKey();
     if (stored) {
@@ -231,17 +300,35 @@ export default function LiveCaptionsTab() {
       elKeyRef.current = stored;
     }
     setHistory(loadHistory());
-    const ol = loadOutputLang();
-    setOutputLang(ol);
-    outputLangRef.current = ol;
+    const tl = loadTargetLangs();
+    setTargetLangs(tl);
+    targetLangsRef.current = tl;
   }, []);
+
+  // Countdown ticker — active while listening or processing
+  const isLive = status === "listening" || status === "processing";
+  useEffect(() => {
+    if (!isLive) {
+      setCountdown(null);
+      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+      return;
+    }
+    countdownIntervalRef.current = setInterval(() => {
+      if (segmentStartRef.current === null) return;
+      const elapsed = Math.floor((Date.now() - segmentStartRef.current) / 1000);
+      const remaining = Math.max(0, 10 - elapsed);
+      setCountdown(remaining);
+    }, 250);
+    return () => {
+      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+    };
+  }, [isLive]);
 
   // ── Helpers ──
 
   const stamp = () =>
     new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
-  // Generic translation helper — reused for both English and selected output language
   const translateText = useCallback(async (text: string, fromLang: string, toLang: string): Promise<string> => {
     if (!text.trim()) return "";
     const from = (fromLang || "").split("-")[0];
@@ -261,7 +348,6 @@ export default function LiveCaptionsTab() {
     }
   }, []);
 
-  // Translate to English (thin wrapper — keeps existing call sites unchanged)
   const translateToEnglish = useCallback(async (text: string, fromLang: string): Promise<string> => {
     if (!text.trim()) return "";
     const normalizedFrom = (fromLang || "").split("-")[0];
@@ -269,9 +355,47 @@ export default function LiveCaptionsTab() {
     return translateText(text, normalizedFrom, "en");
   }, [translateText]);
 
-  // Send audio chunk to backend → get transcript + language
+  // Translate source text into all selected target languages in parallel
+  const translateToAllTargets = useCallback(async (
+    newText: string,
+    srcLang: string,
+  ) => {
+    const langs = targetLangsRef.current;
+    const srcNorm = (srcLang || "").split("-")[0];
+
+    // Mark loading for each language that needs translation
+    setTranslationsByLang((prev) => {
+      const next = { ...prev };
+      for (const lang of langs) {
+        next[lang] = { text: next[lang]?.text ?? "", loading: lang !== srcNorm };
+      }
+      return next;
+    });
+
+    await Promise.all(langs.map(async (lang) => {
+      let text: string;
+      if (lang === srcNorm) {
+        // Same as source — show original
+        text = newText;
+      } else if (lang === "en") {
+        text = await translateToEnglish(newText, srcNorm);
+      } else {
+        const from = srcNorm || "en";
+        text = await translateText(newText, from, lang);
+      }
+      accumulatedByLangRef.current[lang] = accumulatedByLangRef.current[lang]
+        ? `${accumulatedByLangRef.current[lang]} ${text}`
+        : text;
+      setTranslationsByLang((prev) => ({
+        ...prev,
+        [lang]: { text: accumulatedByLangRef.current[lang] ?? "", loading: false },
+      }));
+    }));
+  }, [translateToEnglish, translateText]);
+
+  // Send audio chunk → transcribe → translate to all targets
   const sendChunk = useCallback(async (blob: Blob) => {
-    if (blob.size < 1000) return; // skip near-empty chunks
+    if (blob.size < 1000) return;
     setStatus("processing");
     try {
       const form = new FormData();
@@ -304,7 +428,6 @@ export default function LiveCaptionsTab() {
         return;
       }
 
-      // Accumulate transcript
       accumulatedRef.current = accumulatedRef.current
         ? `${accumulatedRef.current} ${newText}`
         : newText;
@@ -313,48 +436,15 @@ export default function LiveCaptionsTab() {
       setLangCode(data.languageCode);
       setLangLabel(data.languageLabel || getLangLabel(data.languageCode));
       setCaptionTimestamp(stamp());
-      // Only restore to "listening" if we're still actively recording
       if (listeningRef.current) setStatus("listening");
 
-      const srcLang = (data.languageCode || "").split("-")[0];
-      const isEnglishSource = !srcLang || srcLang === "en";
-      const outLang = outputLangRef.current;
-
-      // ── English translation ──
-      if (!isEnglishSource) {
-        setIsTranslating(true);
-        translateToEnglish(newText, srcLang).then((en) => {
-          setEnglishCaption((prev) => prev ? `${prev} ${en}` : en);
-          setIsTranslating(false);
-        });
-      } else {
-        setEnglishCaption(accumulatedRef.current);
-      }
-
-      // ── Output language translation (second pane) ──
-      if (outLang !== "en") {
-        if (outLang === srcLang) {
-          // Same as source — show original text
-          accumulatedOutputRef.current = accumulatedRef.current;
-          setOutputLangCaption(accumulatedOutputRef.current);
-        } else {
-          setIsTranslatingOutput(true);
-          // Translate from source → selected output language
-          const translateFrom = isEnglishSource ? "en" : srcLang;
-          translateText(newText, translateFrom, outLang).then((out) => {
-            accumulatedOutputRef.current = accumulatedOutputRef.current
-              ? `${accumulatedOutputRef.current} ${out}` : out;
-            setOutputLangCaption(accumulatedOutputRef.current);
-            setIsTranslatingOutput(false);
-          });
-        }
-      }
+      await translateToAllTargets(newText, data.languageCode);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Transcription failed";
       setErrorMsg(msg);
       if (listeningRef.current) setStatus("listening");
     }
-  }, [translateToEnglish, translateText]);
+  }, [translateToAllTargets]);
 
   // ── Controls ──
 
@@ -363,13 +453,12 @@ export default function LiveCaptionsTab() {
     setStatus("listening");
     setErrorMsg("");
     setTranscript("");
-    setEnglishCaption("");
-    setOutputLangCaption("");
+    setTranslationsByLang({});
     setLangCode("");
     setLangLabel("");
     setCaptionTimestamp("");
     accumulatedRef.current = "";
-    accumulatedOutputRef.current = "";
+    accumulatedByLangRef.current = {};
 
     if (typeof navigator === "undefined" || !navigator.mediaDevices) {
       setStatus("error");
@@ -380,19 +469,19 @@ export default function LiveCaptionsTab() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       streamRef.current = stream;
-
-      // Pick the best supported mime type — iOS Safari only supports audio/mp4
       const mimeType = getBestMimeType();
       activeMimeRef.current = mimeType;
       listeningRef.current = true;
 
-      // ── Stop/restart cycle ────────────────────────────────────────────────
-      // iOS Safari's MediaRecorder fires ondataavailable ONLY when .stop() is
-      // called — never from requestData() or a timeslice. To get periodic
-      // chunks we stop() after 10 s (which reliably fires ondataavailable),
-      // then immediately start a fresh recorder on the same stream.
+      // Stop/restart cycle — iOS Safari only fires ondataavailable on .stop()
+      // Default window: 10 seconds per segment
+      const SEGMENT_MS = 10000;
+
       const startSegment = () => {
         if (!listeningRef.current || !streamRef.current?.active) return;
+
+        // Reset countdown for this segment
+        segmentStartRef.current = Date.now();
 
         let rec: MediaRecorder;
         try {
@@ -408,7 +497,6 @@ export default function LiveCaptionsTab() {
         };
 
         rec.onstop = () => {
-          // Auto-restart for the next segment only if user hasn't pressed Stop
           if (listeningRef.current) startSegment();
         };
 
@@ -419,14 +507,13 @@ export default function LiveCaptionsTab() {
           }
         };
 
-        rec.start(); // no timeslice — stop() will fire ondataavailable
+        rec.start();
 
-        // Schedule stop after 10 s to harvest the chunk
         chunkTimerRef.current = setTimeout(() => {
           if (rec.state === "recording") {
             try { rec.stop(); } catch {}
           }
-        }, 10000);
+        }, SEGMENT_MS);
       };
 
       startSegment();
@@ -447,20 +534,15 @@ export default function LiveCaptionsTab() {
   }, [status, sendChunk]);
 
   const handleStopListening = useCallback(() => {
-    // Signal all segments to not restart after their current stop
     listeningRef.current = false;
-    // Cancel any pending 10-s timer
+    segmentStartRef.current = null;
     if (chunkTimerRef.current !== null) {
       clearTimeout(chunkTimerRef.current);
       chunkTimerRef.current = null;
     }
-    // Stop the active recorder — this fires ondataavailable one final time
-    // (reliable on iOS Safari) so the last spoken words get transcribed
     try {
       if (recorderRef.current?.state === "recording") recorderRef.current.stop();
     } catch {}
-    // Release the mic tracks after a short delay to let the final
-    // ondataavailable fire and sendChunk finish its fetch
     setTimeout(() => {
       try { streamRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
       recorderRef.current = null;
@@ -473,7 +555,10 @@ export default function LiveCaptionsTab() {
   useEffect(() => {
     return () => {
       listeningRef.current = false;
+      segmentStartRef.current = null;
       if (chunkTimerRef.current !== null) clearTimeout(chunkTimerRef.current);
+      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+      if (typeof window !== "undefined") window.speechSynthesis?.cancel();
       try { recorderRef.current?.stop(); } catch {}
       try { streamRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
     };
@@ -497,14 +582,58 @@ export default function LiveCaptionsTab() {
     saveStoredKey("");
   }, []);
 
+  // ── Target language management ──
+
+  const handleAddTargetLang = useCallback((code: string) => {
+    setTargetLangs((prev) => {
+      if (prev.includes(code)) return prev;
+      const next = [...prev, code];
+      targetLangsRef.current = next;
+      saveTargetLangs(next);
+      return next;
+    });
+    // Clear accumulated for this lang so fresh translation fills it
+    accumulatedByLangRef.current[code] = "";
+    setTranslationsByLang((prev) => ({ ...prev, [code]: { text: "", loading: false } }));
+  }, []);
+
+  const handleRemoveTargetLang = useCallback((code: string) => {
+    setTargetLangs((prev) => {
+      const next = prev.filter((c) => c !== code);
+      const final = next.length === 0 ? ["en"] : next;
+      targetLangsRef.current = final;
+      saveTargetLangs(final);
+      return final;
+    });
+    setTranslationsByLang((prev) => {
+      const next = { ...prev };
+      delete next[code];
+      return next;
+    });
+  }, []);
+
+  // ── TTS ──
+
+  const handleSpeak = useCallback((text: string, langCode: string) => {
+    if (!text) return;
+    if (speakingLang === langCode) {
+      // Toggle off — stop current playback
+      if (typeof window !== "undefined") window.speechSynthesis?.cancel();
+      setSpeakingLang(null);
+      return;
+    }
+    setSpeakingLang(langCode);
+    speakText(text, langCode, undefined, () => setSpeakingLang(null));
+  }, [speakingLang]);
+
   // ── Demo mode ──
 
   const handleDemoTranslate = useCallback(async () => {
     if (!demoText.trim()) return;
     setDemoLoading(true);
     setErrorMsg("");
-    setOutputLangCaption("");
-    accumulatedOutputRef.current = "";
+    setTranslationsByLang({});
+    accumulatedByLangRef.current = {};
     try {
       const label = getLangLabel(demoLang);
       setLangCode(demoLang);
@@ -513,22 +642,13 @@ export default function LiveCaptionsTab() {
       setCaptionTimestamp(stamp());
       accumulatedRef.current = demoText.trim();
 
-      const outLang = outputLangRef.current;
-      const [en, out] = await Promise.all([
-        translateToEnglish(demoText.trim(), demoLang),
-        outLang !== "en" ? translateText(demoText.trim(), demoLang, outLang) : Promise.resolve(""),
-      ]);
-      setEnglishCaption(en);
-      if (outLang !== "en") {
-        accumulatedOutputRef.current = out;
-        setOutputLangCaption(out);
-      }
+      await translateToAllTargets(demoText.trim(), demoLang);
     } catch {
       setErrorMsg("Translation failed. Please try again.");
     } finally {
       setDemoLoading(false);
     }
-  }, [demoText, demoLang, translateToEnglish, translateText]);
+  }, [demoText, demoLang, translateToAllTargets]);
 
   const handleDemoSample = useCallback(async (sample: typeof DEMO_SAMPLES[0]) => {
     setDemoText(sample.text);
@@ -538,75 +658,63 @@ export default function LiveCaptionsTab() {
     setTranscript(sample.text);
     setCaptionTimestamp(stamp());
     accumulatedRef.current = sample.text;
-    setOutputLangCaption("");
-    accumulatedOutputRef.current = "";
+    setTranslationsByLang({});
+    accumulatedByLangRef.current = {};
     setDemoLoading(true);
     try {
-      const outLang = outputLangRef.current;
-      const [en, out] = await Promise.all([
-        translateToEnglish(sample.text, sample.lang),
-        outLang !== "en" ? translateText(sample.text, sample.lang, outLang) : Promise.resolve(""),
-      ]);
-      setEnglishCaption(en);
-      if (outLang !== "en") {
-        accumulatedOutputRef.current = out;
-        setOutputLangCaption(out);
-      }
+      await translateToAllTargets(sample.text, sample.lang);
     } catch {
-      setEnglishCaption(sample.text);
+      // Fallback: show original
+      setTranslationsByLang({ en: { text: sample.text, loading: false } });
     } finally {
       setDemoLoading(false);
     }
-  }, [translateToEnglish, translateText]);
+  }, [translateToAllTargets]);
 
   // ── Actions ──
 
   const handleCopy = useCallback(() => {
-    if (!transcript && !englishCaption) return;
-    const text = langCode && !langCode.startsWith("en")
-      ? `Original (${langLabel}):\n${transcript}\n\nEnglish:\n${englishCaption}`
-      : englishCaption || transcript;
+    if (!transcript) return;
+    const parts: string[] = [];
+    if (langCode && !langCode.startsWith("en")) {
+      parts.push(`Original (${langLabel}):\n${transcript}`);
+    }
+    for (const [code, ts] of Object.entries(translationsByLang)) {
+      const label = ALL_LANG_MAP[code]?.label ?? getLangLabel(code);
+      parts.push(`${label}:\n${ts.text}`);
+    }
+    const text = parts.length > 0 ? parts.join("\n\n") : transcript;
     if (typeof navigator !== "undefined" && navigator.clipboard) {
       navigator.clipboard.writeText(text).catch(() => {});
     }
-  }, [transcript, englishCaption, langCode, langLabel]);
+  }, [transcript, translationsByLang, langCode, langLabel]);
 
   const handleClear = useCallback(() => {
     setTranscript("");
-    setEnglishCaption("");
-    setOutputLangCaption("");
+    setTranslationsByLang({});
     setLangCode("");
     setLangLabel("");
     setCaptionTimestamp("");
     setErrorMsg("");
     accumulatedRef.current = "";
-    accumulatedOutputRef.current = "";
-  }, []);
-
-  // Output language selector — persisted across sessions, no audio reset needed
-  const handleSetOutputLang = useCallback((code: string) => {
-    setOutputLang(code);
-    outputLangRef.current = code;
-    saveOutputLang(code);
-    // Clear the second pane so next chunk fills it fresh for the new language
-    setOutputLangCaption("");
-    accumulatedOutputRef.current = "";
+    accumulatedByLangRef.current = {};
   }, []);
 
   const handleSaveToHistory = useCallback(() => {
-    if (!transcript && !englishCaption) return;
+    if (!transcript) return;
+    const englishText = translationsByLang["en"]?.text ?? transcript;
     const entry: CaptionEntry = {
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
       timestamp: Date.now(),
       original: transcript,
-      english: englishCaption || transcript,
+      english: englishText,
       languageCode: langCode,
       languageLabel: langLabel || "Unknown",
     };
     const updated = [entry, ...history].slice(0, 50);
     setHistory(updated);
     saveHistory(updated);
-  }, [transcript, englishCaption, langCode, langLabel, history]);
+  }, [transcript, translationsByLang, langCode, langLabel, history]);
 
   const handleDeleteHistory = useCallback((id: string) => {
     const updated = history.filter((h) => h.id !== id);
@@ -615,15 +723,16 @@ export default function LiveCaptionsTab() {
   }, [history]);
 
   // ── Derived ──
+
   const hasKey = !!elKey;
-  const isLive = status === "listening" || status === "processing";
-  const hasCaption = !!(transcript || englishCaption);
-  const showEnglishDiff = langCode && !langCode.startsWith("en");
+  const hasCaption = !!transcript;
   const tabBottom = insets.bottom + 80;
-  const outputLangLabel = OUTPUT_LANG_OPTIONS.find((o) => o.code === outputLang)?.label ?? "English";
-  const showOutputPane = outputLang !== "en"; // second pane only when non-English is selected
+
+  const targetLangsText = targetLangs.length === 0 ? "English"
+    : targetLangs.map((c) => ALL_LANG_MAP[c]?.label ?? getLangLabel(c)).join(", ");
 
   // ── Render ──
+
   return (
     <View style={styles.root}>
       <StatusBar barStyle="light-content" />
@@ -639,8 +748,8 @@ export default function LiveCaptionsTab() {
           <View style={styles.headerLeft}>
             <View style={[styles.liveDot, isLive && styles.liveDotActive]} />
             <View>
-              <Text style={styles.headerTitle}>Live Captions</Text>
-              <Text style={styles.headerSub}>Speech → real-time captions in any language</Text>
+              <Text style={styles.headerTitle}>Live Interpreter</Text>
+              <Text style={styles.headerSub}>Speak → transcript + multi-language translations</Text>
             </View>
           </View>
           <Pressable style={styles.settingsBtn} onPress={() => setSettingsOpen((v) => !v)}>
@@ -694,7 +803,7 @@ export default function LiveCaptionsTab() {
           </Animated.View>
         )}
 
-        {/* ── Mode badge ─────────────────────────────────────────────── */}
+        {/* ── Mode badge ──────────────────────────────────────────────── */}
         <View style={styles.modeBadgeRow}>
           <View style={[styles.modeBadge, hasKey ? styles.modeBadgeLive : styles.modeBadgeDemo]}>
             <Feather
@@ -708,43 +817,91 @@ export default function LiveCaptionsTab() {
           </View>
         </View>
 
-        {/* ── Output Language Selector ────────────────────────────────── */}
-        <View style={styles.outputLangCard}>
-          <View style={styles.outputLangCardHeader}>
+        {/* ── Target Language Selector ─────────────────────────────────── */}
+        <View style={styles.targetLangCard}>
+          <View style={styles.targetLangCardHeader}>
             <Feather name="globe" size={13} color={Colors.accentTertiary} />
-            <Text style={styles.outputLangCardTitle}>Output Language</Text>
-            <Text style={styles.outputLangCardSub}>
-              {outputLang === "en" ? "English (always shown)" : `English + ${outputLangLabel}`}
-            </Text>
+            <Text style={styles.targetLangCardTitle}>Target Languages</Text>
           </View>
+
+          {/* Selected language chips with remove (×) */}
+          {targetLangs.length > 0 && (
+            <View style={styles.selectedLangsRow}>
+              {targetLangs.map((code) => {
+                const info = ALL_LANG_MAP[code];
+                return (
+                  <View key={code} style={styles.selectedLangChip}>
+                    <Text style={styles.selectedLangChipFlag}>{info?.flag ?? "🌐"}</Text>
+                    <Text style={styles.selectedLangChipText}>{info?.label ?? code}</Text>
+                    <Pressable
+                      style={styles.selectedLangChipRemove}
+                      onPress={() => handleRemoveTargetLang(code)}
+                    >
+                      <Feather name="x" size={11} color={Colors.accentTertiary} />
+                    </Pressable>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+
+          {/* Indian Languages group */}
+          <Text style={styles.langGroupLabel}>🇮🇳 Indian Languages</Text>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.outputLangOptions}
+            contentContainerStyle={styles.langGroupRow}
           >
-            {OUTPUT_LANG_OPTIONS.map((opt) => (
-              <Pressable
-                key={opt.code}
-                style={[styles.outputLangChip, outputLang === opt.code && styles.outputLangChipActive]}
-                onPress={() => handleSetOutputLang(opt.code)}
-              >
-                <Text style={[
-                  styles.outputLangChipText,
-                  outputLang === opt.code && styles.outputLangChipTextActive,
-                ]}>
-                  {LANG_FLAGS[opt.code] ?? "🌐"} {opt.label}
-                </Text>
-              </Pressable>
-            ))}
+            {INDIAN_LANG_OPTIONS.map((opt) => {
+              const selected = targetLangs.includes(opt.code);
+              return (
+                <Pressable
+                  key={opt.code}
+                  style={[styles.langPickerChip, selected && styles.langPickerChipActive]}
+                  onPress={() => selected ? handleRemoveTargetLang(opt.code) : handleAddTargetLang(opt.code)}
+                >
+                  <Text style={[styles.langPickerChipText, selected && styles.langPickerChipTextActive]}>
+                    {opt.flag} {opt.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </ScrollView>
+
+          {/* International Languages group */}
+          <Text style={styles.langGroupLabel}>🌍 International Languages</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.langGroupRow}
+          >
+            {INTL_LANG_OPTIONS.map((opt) => {
+              const selected = targetLangs.includes(opt.code);
+              return (
+                <Pressable
+                  key={opt.code}
+                  style={[styles.langPickerChip, selected && styles.langPickerChipActive]}
+                  onPress={() => selected ? handleRemoveTargetLang(opt.code) : handleAddTargetLang(opt.code)}
+                >
+                  <Text style={[styles.langPickerChipText, selected && styles.langPickerChipTextActive]}>
+                    {opt.flag} {opt.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+
+          {/* Future expansion note */}
+          <Text style={styles.futureLangNote}>
+            ✦ More languages will be added in future updates.
+          </Text>
         </View>
 
-        {/* ── Mic Controls (Live Mode) ────────────────────────────────── */}
+        {/* ── Mic Controls ────────────────────────────────────────────── */}
         <View style={styles.controlsCard}>
           <View style={styles.controlsRow}>
-            {/* Start */}
             <Pressable
-              style={[styles.ctrlBtn, styles.ctrlBtnStart, (isLive) && styles.ctrlBtnDisabled]}
+              style={[styles.ctrlBtn, styles.ctrlBtnStart, isLive && styles.ctrlBtnDisabled]}
               onPress={handleStartListening}
               disabled={isLive}
             >
@@ -754,7 +911,6 @@ export default function LiveCaptionsTab() {
               </Text>
             </Pressable>
 
-            {/* Stop */}
             <Pressable
               style={[styles.ctrlBtn, styles.ctrlBtnStop, !isLive && styles.ctrlBtnDisabled]}
               onPress={handleStopListening}
@@ -767,7 +923,7 @@ export default function LiveCaptionsTab() {
             </Pressable>
           </View>
 
-          {/* Status */}
+          {/* Status row with countdown */}
           <View style={styles.statusRow}>
             <View style={[
               styles.statusDot,
@@ -782,9 +938,12 @@ export default function LiveCaptionsTab() {
               status === "error" && { color: Colors.error },
             ]}>
               {status === "idle" ? "Idle — ready to start"
-                : status === "listening" ? "Listening… speak now"
-                : status === "processing" ? "Processing audio chunk…"
-                : `Error: ${errorMsg}`}
+                : status === "listening"
+                  ? countdown !== null
+                    ? `Listening for 10 seconds… (${countdown}s remaining)`
+                    : "Listening… speak now"
+                  : status === "processing" ? "Processing audio chunk…"
+                  : `Error: ${errorMsg}`}
             </Text>
           </View>
 
@@ -796,15 +955,13 @@ export default function LiveCaptionsTab() {
           )}
         </View>
 
-        {/* ── Caption panel ───────────────────────────────────────────── */}
+        {/* ── Results panel ───────────────────────────────────────────── */}
         {hasCaption && (
           <Animated.View entering={FadeInDown} style={styles.captionPanel}>
-            {/* Detected language */}
+            {/* Detected language + timestamp */}
             <View style={styles.captionHeader}>
               <View style={styles.langBadge}>
-                <Text style={styles.langBadgeFlag}>
-                  {LANG_FLAGS[langCode?.split("-")[0] ?? ""] ?? "🌐"}
-                </Text>
+                <Text style={styles.langBadgeFlag}>{getLangFlag(langCode)}</Text>
                 <Text style={styles.langBadgeText}>
                   {langLabel || "Detecting…"}
                 </Text>
@@ -814,85 +971,62 @@ export default function LiveCaptionsTab() {
               )}
             </View>
 
-            {/* Original transcript (dimmer, only if different from English) */}
-            {showEnglishDiff && !!transcript && (
-              <View style={styles.originalBlock}>
-                <Text style={styles.originalLabel}>Original</Text>
-                <Text style={styles.originalText}>{transcript}</Text>
-              </View>
-            )}
-
-            {/* Language direction row: Source → English [→ Output] */}
-            <View style={styles.directionRow}>
-              <Text style={styles.directionItem}>
-                {LANG_FLAGS[langCode?.split("-")[0] ?? ""] ?? "🌐"} {langLabel || "Source"}
-              </Text>
-              <Feather name="arrow-right" size={11} color={Colors.textTertiary} />
-              <Text style={styles.directionItem}>🇺🇸 English</Text>
-              {showOutputPane && (
-                <>
-                  <Feather name="arrow-right" size={11} color={Colors.textTertiary} />
-                  <Text style={styles.directionItem}>
-                    {LANG_FLAGS[outputLang] ?? "🌐"} {outputLangLabel}
-                  </Text>
-                </>
-              )}
+            {/* Original transcript */}
+            <View style={styles.originalBlock}>
+              <Text style={styles.originalLabel}>Original Transcript</Text>
+              <Text style={styles.originalText}>{transcript}</Text>
             </View>
 
-            {/* English caption — prominent */}
-            <View style={styles.englishBlock}>
-              <View style={styles.englishLabelRow}>
-                <Feather name="globe" size={12} color={Colors.accent} />
-                <Text style={styles.englishLabel}>English</Text>
-                {isTranslating && (
-                  <View style={styles.translatingBadge}>
-                    <Text style={styles.translatingText}>translating…</Text>
-                  </View>
-                )}
-                <Pressable
-                  style={styles.inlineCopyBtn}
-                  onPress={() => {
-                    const t = englishCaption || transcript;
-                    if (t && typeof navigator !== "undefined" && navigator.clipboard) {
-                      navigator.clipboard.writeText(t).catch(() => {});
-                    }
-                  }}
-                >
-                  <Feather name="copy" size={11} color={Colors.textTertiary} />
-                </Pressable>
-              </View>
-              <Text style={styles.englishText}>
-                {englishCaption || (isTranslating ? "Translating…" : transcript)}
-              </Text>
-            </View>
-
-            {/* Output language pane — only when a non-English language is selected */}
-            {showOutputPane && (
-              <View style={styles.outputBlock}>
-                <View style={styles.outputLabelRow}>
-                  <Text style={styles.outputLangFlag}>{LANG_FLAGS[outputLang] ?? "🌐"}</Text>
-                  <Text style={styles.outputLabel}>{outputLangLabel}</Text>
-                  {isTranslatingOutput && (
-                    <View style={styles.translatingBadge}>
-                      <Text style={styles.translatingText}>translating…</Text>
+            {/* Translation cards — one per selected target language */}
+            {targetLangs.map((code) => {
+              const info = ALL_LANG_MAP[code];
+              const ts = translationsByLang[code];
+              const isPlaying = speakingLang === code;
+              return (
+                <View key={code} style={styles.translationCard}>
+                  <View style={styles.translationCardHeader}>
+                    <Text style={styles.translationCardFlag}>{info?.flag ?? "🌐"}</Text>
+                    <Text style={styles.translationCardLabel}>{info?.label ?? getLangLabel(code)}</Text>
+                    {ts?.loading && (
+                      <View style={styles.translatingBadge}>
+                        <Text style={styles.translatingText}>translating…</Text>
+                      </View>
+                    )}
+                    <View style={styles.translationCardActions}>
+                      {/* Copy */}
+                      <Pressable
+                        style={styles.translationIconBtn}
+                        onPress={() => {
+                          if (ts?.text && typeof navigator !== "undefined" && navigator.clipboard) {
+                            navigator.clipboard.writeText(ts.text).catch(() => {});
+                          }
+                        }}
+                      >
+                        <Feather name="copy" size={13} color={Colors.textTertiary} />
+                      </Pressable>
+                      {/* Speak */}
+                      <Pressable
+                        style={[styles.speakBtn, isPlaying && styles.speakBtnActive]}
+                        onPress={() => handleSpeak(ts?.text ?? "", code)}
+                        disabled={!ts?.text}
+                      >
+                        <Feather
+                          name={isPlaying ? "volume-x" : "volume-2"}
+                          size={13}
+                          color={isPlaying ? Colors.accentTertiary : Colors.textSecondary}
+                        />
+                        <Text style={[styles.speakBtnText, isPlaying && { color: Colors.accentTertiary }]}>
+                          {isPlaying ? "Stop" : "Speak"}
+                        </Text>
+                      </Pressable>
                     </View>
-                  )}
-                  <Pressable
-                    style={styles.inlineCopyBtn}
-                    onPress={() => {
-                      if (outputLangCaption && typeof navigator !== "undefined" && navigator.clipboard) {
-                        navigator.clipboard.writeText(outputLangCaption).catch(() => {});
-                      }
-                    }}
-                  >
-                    <Feather name="copy" size={11} color={Colors.textTertiary} />
-                  </Pressable>
+                  </View>
+                  <Text style={styles.translationCardText}>
+                    {ts?.text || (ts?.loading ? "Translating…" : "—")}
+                  </Text>
                 </View>
-                <Text style={styles.outputText}>
-                  {outputLangCaption || (isTranslatingOutput ? "Translating…" : "")}
-                </Text>
-              </View>
-            )}
+              );
+            })}
 
             {/* Caption actions */}
             <View style={styles.captionActions}>
@@ -912,14 +1046,14 @@ export default function LiveCaptionsTab() {
           </Animated.View>
         )}
 
-        {/* ── Demo Mode panel ─────────────────────────────────────────── */}
+        {/* ── Demo / Manual Translate panel ───────────────────────────── */}
         <View style={styles.demoCard}>
           <View style={styles.demoHeader}>
             <Feather name="edit-3" size={13} color={Colors.accentTertiary} />
             <Text style={styles.demoHeaderText}>Demo / Manual Translate</Text>
           </View>
           <Text style={styles.demoHint}>
-            No microphone? Pick a sample phrase or type any text — see the English translation instantly.
+            No microphone? Pick a sample phrase or type any text — translations appear in all selected target languages.
           </Text>
 
           {/* Sample phrases */}
@@ -955,7 +1089,7 @@ export default function LiveCaptionsTab() {
             textAlignVertical="top"
           />
 
-          {/* Language selector */}
+          {/* Source language selector */}
           <View style={styles.demoLangRow}>
             <Text style={styles.demoLangLabel}>Source Language:</Text>
             <ScrollView
@@ -986,9 +1120,7 @@ export default function LiveCaptionsTab() {
             <Text style={styles.translateBtnText}>
               {demoLoading
                 ? "Translating…"
-                : outputLang === "en"
-                ? "Translate to English"
-                : `Translate → English + ${outputLangLabel}`}
+                : `Translate → ${targetLangsText}`}
             </Text>
           </Pressable>
         </View>
@@ -1001,7 +1133,7 @@ export default function LiveCaptionsTab() {
               onPress={() => setHistoryExpanded((v) => !v)}
             >
               <Feather name="clock" size={13} color={Colors.textSecondary} />
-              <Text style={styles.historySectionTitle}>Saved Captions ({history.length})</Text>
+              <Text style={styles.historySectionTitle}>Saved Sessions ({history.length})</Text>
               <Feather
                 name={historyExpanded ? "chevron-up" : "chevron-down"}
                 size={14}
@@ -1018,7 +1150,7 @@ export default function LiveCaptionsTab() {
                   <View style={styles.historyCardHeader}>
                     <View style={styles.historyLangBadge}>
                       <Text style={styles.historyLangFlag}>
-                        {LANG_FLAGS[entry.languageCode?.split("-")[0] ?? ""] ?? "🌐"}
+                        {getLangFlag(entry.languageCode?.split("-")[0] ?? "")}
                       </Text>
                       <Text style={styles.historyLangText}>{entry.languageLabel}</Text>
                     </View>
@@ -1041,7 +1173,7 @@ export default function LiveCaptionsTab() {
   );
 }
 
-// ── Styles ─────────────────────────────────────────────────────────────────
+// ── Styles ──────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   root: {
@@ -1207,6 +1339,91 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
 
+  // Target language selector card
+  targetLangCard: {
+    backgroundColor: Colors.card,
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: Colors.accentTertiary + "33",
+    gap: 10,
+  },
+  targetLangCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  targetLangCardTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: Colors.accentTertiary,
+  },
+  selectedLangsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  selectedLangChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: Colors.accentTertiary + "22",
+    borderRadius: 20,
+    paddingLeft: 8,
+    paddingRight: 6,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: Colors.accentTertiary + "55",
+  },
+  selectedLangChipFlag: { fontSize: 12 },
+  selectedLangChipText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: Colors.accentTertiary,
+  },
+  selectedLangChipRemove: {
+    padding: 2,
+  },
+  langGroupLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: Colors.textTertiary,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  langGroupRow: {
+    flexDirection: "row",
+    gap: 6,
+    paddingHorizontal: 2,
+  },
+  langPickerChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: Colors.background,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  langPickerChipActive: {
+    backgroundColor: Colors.accentTertiary + "22",
+    borderColor: Colors.accentTertiary + "66",
+  },
+  langPickerChipText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: Colors.textSecondary,
+  },
+  langPickerChipTextActive: {
+    color: Colors.accentTertiary,
+  },
+  futureLangNote: {
+    fontSize: 10,
+    color: Colors.textTertiary,
+    fontStyle: "italic",
+    textAlign: "center",
+    paddingTop: 2,
+  },
+
   // Controls card
   controlsCard: {
     backgroundColor: Colors.card,
@@ -1258,15 +1475,9 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: Colors.textTertiary,
   },
-  statusDotListening: {
-    backgroundColor: ACCENT_LIVE,
-  },
-  statusDotProcessing: {
-    backgroundColor: Colors.accent,
-  },
-  statusDotError: {
-    backgroundColor: Colors.error,
-  },
+  statusDotListening: { backgroundColor: ACCENT_LIVE },
+  statusDotProcessing: { backgroundColor: Colors.accent },
+  statusDotError: { backgroundColor: Colors.error },
   statusText: {
     fontSize: 12,
     color: Colors.textSecondary,
@@ -1290,7 +1501,7 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
 
-  // Caption panel
+  // Caption / results panel
   captionPanel: {
     backgroundColor: Colors.card,
     borderRadius: 16,
@@ -1325,10 +1536,12 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: Colors.textTertiary,
   },
+
+  // Original transcript block
   originalBlock: {
     backgroundColor: Colors.background,
     borderRadius: 10,
-    padding: 10,
+    padding: 12,
     borderWidth: 1,
     borderColor: Colors.cardBorder,
   },
@@ -1345,23 +1558,26 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     lineHeight: 22,
   },
-  englishBlock: {
-    backgroundColor: Colors.accent + "0C",
+
+  // Individual translation card
+  translationCard: {
+    backgroundColor: Colors.accentTertiary + "0C",
     borderRadius: 12,
     padding: 14,
     borderWidth: 1,
-    borderColor: Colors.accent + "33",
+    borderColor: Colors.accentTertiary + "33",
+    gap: 8,
   },
-  englishLabelRow: {
+  translationCardHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    marginBottom: 8,
   },
-  englishLabel: {
+  translationCardFlag: { fontSize: 14 },
+  translationCardLabel: {
     fontSize: 10,
     fontWeight: "700",
-    color: Colors.accent,
+    color: Colors.accentTertiary,
     textTransform: "uppercase",
     letterSpacing: 0.5,
     flex: 1,
@@ -1377,13 +1593,43 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: Colors.accent,
   },
-  englishText: {
+  translationCardActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  translationIconBtn: {
+    padding: 4,
+  },
+  speakBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: Colors.background,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  speakBtnActive: {
+    borderColor: Colors.accentTertiary + "66",
+    backgroundColor: Colors.accentTertiary + "18",
+  },
+  speakBtnText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: Colors.textSecondary,
+  },
+  translationCardText: {
     fontSize: 20,
     fontWeight: "700",
     color: Colors.text,
     lineHeight: 28,
     letterSpacing: -0.3,
   },
+
+  // Caption actions row
   captionActions: {
     flexDirection: "row",
     gap: 8,
@@ -1409,7 +1655,7 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
   },
 
-  // Demo
+  // Demo card
   demoCard: {
     backgroundColor: Colors.card,
     borderRadius: 16,
@@ -1515,9 +1761,7 @@ const styles = StyleSheet.create({
   },
 
   // History
-  historySection: {
-    gap: 8,
-  },
+  historySection: { gap: 8 },
   historySectionHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -1570,9 +1814,7 @@ const styles = StyleSheet.create({
     color: Colors.textTertiary,
     textAlign: "right",
   },
-  historyDeleteBtn: {
-    padding: 3,
-  },
+  historyDeleteBtn: { padding: 3 },
   historyOriginal: {
     fontSize: 13,
     color: Colors.textTertiary,
@@ -1583,108 +1825,5 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: Colors.text,
     lineHeight: 20,
-  },
-
-  // Output Language Selector
-  outputLangCard: {
-    backgroundColor: Colors.card,
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: Colors.accentTertiary + "33",
-    gap: 10,
-  },
-  outputLangCardHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  outputLangCardTitle: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: Colors.accentTertiary,
-  },
-  outputLangCardSub: {
-    fontSize: 11,
-    color: Colors.textTertiary,
-    marginLeft: "auto" as unknown as number,
-  },
-  outputLangOptions: {
-    paddingHorizontal: 2,
-    gap: 6,
-    flexDirection: "row",
-  },
-  outputLangChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 10,
-    backgroundColor: Colors.background,
-    borderWidth: 1,
-    borderColor: Colors.cardBorder,
-  },
-  outputLangChipActive: {
-    borderColor: Colors.accentTertiary + "88",
-    backgroundColor: Colors.accentTertiary + "18",
-  },
-  outputLangChipText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: Colors.textSecondary,
-  },
-  outputLangChipTextActive: {
-    color: Colors.accentTertiary,
-  },
-
-  // Direction row
-  directionRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    flexWrap: "wrap",
-    marginBottom: 2,
-  },
-  directionItem: {
-    fontSize: 11,
-    color: Colors.textTertiary,
-    fontWeight: "500",
-  },
-
-  // Inline copy button inside label rows
-  inlineCopyBtn: {
-    marginLeft: "auto" as unknown as number,
-    padding: 3,
-  },
-
-  // Output language caption pane (second pane — purple accent)
-  outputBlock: {
-    backgroundColor: Colors.accentTertiary + "0C",
-    borderRadius: 12,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: Colors.accentTertiary + "33",
-  },
-  outputLabelRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginBottom: 8,
-  },
-  outputLangFlag: {
-    fontSize: 13,
-  },
-  outputLabel: {
-    fontSize: 10,
-    fontWeight: "700",
-    color: Colors.accentTertiary,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    flex: 1,
-  },
-  outputText: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: Colors.text,
-    lineHeight: 28,
-    letterSpacing: -0.3,
   },
 });
