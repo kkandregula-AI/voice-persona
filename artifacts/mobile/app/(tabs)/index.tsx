@@ -136,6 +136,22 @@ export default function HomeScreen() {
               <Text style={styles.quickLabel}>My History</Text>
             </Pressable>
           </View>
+          <View style={[styles.quickRow, { marginTop: 10 }]}>
+            <Pressable
+              style={styles.quickCard}
+              onPress={() => router.push("/(tabs)/travel")}
+            >
+              <Feather name="globe" size={18} color="#10B981" />
+              <Text style={styles.quickLabel}>Travel Talk</Text>
+            </Pressable>
+            <Pressable
+              style={styles.quickCard}
+              onPress={() => router.push("/(tabs)/livecaptions")}
+            >
+              <Feather name="activity" size={18} color={Colors.success} />
+              <Text style={styles.quickLabel}>Interpreter</Text>
+            </Pressable>
+          </View>
         </Animated.View>
 
         {/* Feature list */}
@@ -185,6 +201,16 @@ const FEATURES = [
     title: "Local History",
     desc: "All your generated audio saved with one-tap replay",
     color: Colors.warning,
+  },
+  {
+    title: "Travel Talk",
+    desc: "Real-time two-way speech translation across 30+ languages",
+    color: "#10B981",
+  },
+  {
+    title: "Live Interpreter",
+    desc: "Speak live and get instant multi-language translation cards",
+    color: "#6366F1",
   },
 ];
 
