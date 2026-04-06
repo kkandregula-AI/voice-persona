@@ -4,7 +4,7 @@
     "position": 1,
     "filepath": "src/pages/slides/TitleSlide.tsx",
     "title": "Voice Persona AI",
-    "description": "Opening title slide — cinematic hero with app tagline and Buildathon badge.",
+    "description": "Opening title slide — Week 3 badge, four feature pills, April 2026 date.",
     "speakerNotes": ""
   },
   {
@@ -20,7 +20,7 @@
     "position": 3,
     "filepath": "src/pages/slides/SolutionSlide.tsx",
     "title": "The Solution",
-    "description": "Three pillars: Voice Cloning, Persona Engine, and Travel Talk.",
+    "description": "Four superpowers in a 2x2 grid: Voice Cloning, Persona Engine, Travel Talk, Live Interpreter.",
     "speakerNotes": ""
   },
   {
@@ -36,23 +36,31 @@
     "position": 5,
     "filepath": "src/pages/slides/TravelTalkSlide.tsx",
     "title": "Travel Talk",
-    "description": "Week 2 hero feature — real-time AI translation across 18 languages with voice and text input.",
+    "description": "Real-time AI translation across 30+ languages with voice, text input, and show-to-them card.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-e5f6-7a8b-9c0d-e1f2a3b4c5d6",
+    "position": 6,
+    "filepath": "src/pages/slides/InterpreterSlide.tsx",
+    "title": "Live Interpreter",
+    "description": "Week 3 hero — simultaneous multi-language translation with per-language Speak cards.",
     "speakerNotes": ""
   },
   {
     "id": "6f7a8b9c-0d1e-2f3a-4b5c-6d7e8f9a0b1c",
-    "position": 6,
+    "position": 7,
     "filepath": "src/pages/slides/BuildSlide.tsx",
-    "title": "Week 2 + Tech Stack",
-    "description": "What was shipped in Week 2 and the full technology stack.",
+    "title": "Week 3 + Tech Stack",
+    "description": "What was shipped in Week 3 and the full technology stack.",
     "speakerNotes": ""
   },
   {
     "id": "7a8b9c0d-1e2f-3a4b-5c6d-7e8f9a0b1c2d",
-    "position": 7,
+    "position": 8,
     "filepath": "src/pages/slides/ClosingSlide.tsx",
     "title": "Try It Now",
-    "description": "Closing slide with live URL and key metrics.",
+    "description": "Closing slide with live URL — 30+ languages, 5 tabs, 3 persona modes, 15s clone.",
     "speakerNotes": ""
   }
 ]

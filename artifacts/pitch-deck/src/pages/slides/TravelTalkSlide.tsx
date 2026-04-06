@@ -15,12 +15,12 @@ export default function TravelTalkSlide() {
 
       <div className="relative flex h-full px-[8vw] py-[7vh] gap-[6vw]">
         <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", width: "50%" }}>
-          <div style={{ fontFamily: "Inter, sans-serif", fontSize: "1.3vw", color: "#10B981", letterSpacing: "0.18em", fontWeight: 600, textTransform: "uppercase", marginBottom: "2vh" }}>Week 2 Hero Feature</div>
-          <div style={{ fontFamily: "Space Grotesk, sans-serif", fontSize: "5vw", fontWeight: 700, color: "#F8FAFC", lineHeight: 1.0, letterSpacing: "-0.03em", marginBottom: "3vh" }}>
-            Travel Talk
+          <div style={{ fontFamily: "Inter, sans-serif", fontSize: "1.3vw", color: "#10B981", letterSpacing: "0.18em", fontWeight: 600, textTransform: "uppercase", marginBottom: "2vh" }}>Travel Talk</div>
+          <div style={{ fontFamily: "Space Grotesk, sans-serif", fontSize: "5vw", fontWeight: 700, color: "#F8FAFC", lineHeight: 1.0, letterSpacing: "-0.03em", marginBottom: "2.5vh" }}>
+            Speak naturally.
           </div>
           <div style={{ fontFamily: "Space Grotesk, sans-serif", fontSize: "2.2vw", fontWeight: 500, color: "#10B981", marginBottom: "3vh" }}>
-            Speak naturally. Let AI bridge the language.
+            Let AI bridge the language.
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: "1.5vh" }}>
@@ -49,7 +49,7 @@ export default function TravelTalkSlide() {
 
         <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: "2vh" }}>
           <div style={{ background: "rgba(16,185,129,0.1)", border: "1.5px solid rgba(16,185,129,0.35)", borderRadius: "1.2vw", padding: "2.5vh 2.2vw" }}>
-            <div style={{ fontFamily: "Inter, sans-serif", fontSize: "1.2vw", color: "#10B981", marginBottom: "1vh", letterSpacing: "0.08em", fontWeight: 600, textTransform: "uppercase" }}>18 Languages Supported</div>
+            <div style={{ fontFamily: "Inter, sans-serif", fontSize: "1.2vw", color: "#10B981", marginBottom: "1vh", letterSpacing: "0.08em", fontWeight: 600, textTransform: "uppercase" }}>30+ Languages Supported</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "0.8vw" }}>
               <span style={{ fontFamily: "Inter, sans-serif", fontSize: "1.3vw", color: "rgba(248,250,252,0.75)" }}>Spanish</span>
               <span style={{ color: "rgba(248,250,252,0.3)", fontSize: "1.3vw" }}>·</span>
@@ -59,15 +59,15 @@ export default function TravelTalkSlide() {
               <span style={{ color: "rgba(248,250,252,0.3)", fontSize: "1.3vw" }}>·</span>
               <span style={{ fontFamily: "Inter, sans-serif", fontSize: "1.3vw", color: "rgba(248,250,252,0.75)" }}>Korean</span>
               <span style={{ color: "rgba(248,250,252,0.3)", fontSize: "1.3vw" }}>·</span>
-              <span style={{ fontFamily: "Inter, sans-serif", fontSize: "1.3vw", color: "rgba(248,250,252,0.75)" }}>Arabic</span>
-              <span style={{ color: "rgba(248,250,252,0.3)", fontSize: "1.3vw" }}>·</span>
               <span style={{ fontFamily: "Inter, sans-serif", fontSize: "1.3vw", color: "rgba(248,250,252,0.75)" }}>Hindi</span>
               <span style={{ color: "rgba(248,250,252,0.3)", fontSize: "1.3vw" }}>·</span>
-              <span style={{ fontFamily: "Inter, sans-serif", fontSize: "1.3vw", color: "rgba(248,250,252,0.75)" }}>German</span>
+              <span style={{ fontFamily: "Inter, sans-serif", fontSize: "1.3vw", color: "rgba(248,250,252,0.75)" }}>Arabic</span>
               <span style={{ color: "rgba(248,250,252,0.3)", fontSize: "1.3vw" }}>·</span>
-              <span style={{ fontFamily: "Inter, sans-serif", fontSize: "1.3vw", color: "rgba(248,250,252,0.75)" }}>Chinese</span>
+              <span style={{ fontFamily: "Inter, sans-serif", fontSize: "1.3vw", color: "rgba(248,250,252,0.75)" }}>Telugu</span>
               <span style={{ color: "rgba(248,250,252,0.3)", fontSize: "1.3vw" }}>·</span>
-              <span style={{ fontFamily: "Inter, sans-serif", fontSize: "1.3vw", color: "rgba(248,250,252,0.75)" }}>+ 10 more</span>
+              <span style={{ fontFamily: "Inter, sans-serif", fontSize: "1.3vw", color: "rgba(248,250,252,0.75)" }}>Tamil</span>
+              <span style={{ color: "rgba(248,250,252,0.3)", fontSize: "1.3vw" }}>·</span>
+              <span style={{ fontFamily: "Inter, sans-serif", fontSize: "1.3vw", color: "rgba(248,250,252,0.75)" }}>+ 22 more</span>
             </div>
           </div>
 
@@ -80,7 +80,7 @@ export default function TravelTalkSlide() {
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: "1vw" }}>
                 <div style={{ background: "#A78BFA", borderRadius: "4px", padding: "0.2vh 0.7vw", fontFamily: "Inter, sans-serif", fontSize: "1.2vw", fontWeight: 600, color: "#050508" }}>2</div>
-                <span style={{ fontFamily: "Inter, sans-serif", fontSize: "1.4vw", color: "rgba(248,250,252,0.8)" }}>MyMemory fallback — only if confidence score is above 80%</span>
+                <span style={{ fontFamily: "Inter, sans-serif", fontSize: "1.4vw", color: "rgba(248,250,252,0.8)" }}>MyMemory fallback — confidence scored above 80%</span>
               </div>
             </div>
           </div>
