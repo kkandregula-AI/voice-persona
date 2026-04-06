@@ -757,6 +757,17 @@ export default function LiveCaptionsTab() {
           </Pressable>
         </View>
 
+        {/* ── How it works note ──────────────────────────────────────── */}
+        <View style={styles.howItWorksCard}>
+          <View style={styles.howItWorksRow}>
+            <Feather name="info" size={13} color={Colors.accent} style={{ marginTop: 1 }} />
+            <Text style={styles.howItWorksText}>
+              <Text style={styles.howItWorksBold}>How to use: </Text>
+              Speak in your language — the app listens for up to 10 seconds, transcribes what you said, and instantly translates it into one or more languages you select below. Tap <Text style={styles.howItWorksBold}>Speak</Text> on any translation card to hear it read aloud in that language.
+            </Text>
+          </View>
+        </View>
+
         {/* ── Settings card ───────────────────────────────────────────── */}
         {settingsOpen && (
           <Animated.View entering={FadeInDown} style={styles.settingsCard}>
@@ -1229,6 +1240,30 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.card,
     borderWidth: 1,
     borderColor: Colors.cardBorder,
+  },
+
+  // How it works info card
+  howItWorksCard: {
+    backgroundColor: Colors.accent + "0C",
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: Colors.accent + "33",
+  },
+  howItWorksRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  howItWorksText: {
+    flex: 1,
+    fontSize: 12,
+    color: Colors.textSecondary,
+    lineHeight: 18,
+  },
+  howItWorksBold: {
+    fontWeight: "700",
+    color: Colors.text,
   },
 
   // Settings
