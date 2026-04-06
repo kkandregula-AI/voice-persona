@@ -1,0 +1,20 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "MlsiR6Mn-ifTKqLWEt9Oq"
+uri = "file://.local/outputs/Voice-Persona-Gen.pdf"
+type = "pdf"
+title = "Voice Persona Gen.pdf"
+
+[[outputs]]
+id = "CxKmKNEL8ZvrxkpyJDxv4"
+uri = "file://.local/outputs/Voice-Persona-Gen.pptx"
+type = "slides"
+title = "Voice Persona Gen.pptx"
+
+[[outputs]]
+id = "RGXJW5H54OyXL0Q5ZzAMe"
+uri = "file://voice-persona-ai-demo-script.md"
+type = "text"
+title = "Voice Persona AI — Demo Explainer Video Script"
