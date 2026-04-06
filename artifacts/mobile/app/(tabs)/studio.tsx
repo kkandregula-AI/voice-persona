@@ -838,7 +838,7 @@ export default function VoiceStudioScreen() {
         >
           {!isWide && (
             <View style={styles.header}>
-              <View>
+              <View style={{ flex: 1, paddingRight: 12 }}>
                 <Text style={styles.title}>Voice Studio</Text>
                 <Text style={styles.subtitle}>Write, refine, and generate speech in your own voice</Text>
               </View>
