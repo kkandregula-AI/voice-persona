@@ -1195,6 +1195,17 @@ export default function TravelTalkScreen() {
           </View>
         </View>
 
+        {/* How to use note */}
+        <View style={styles.howItWorksCard}>
+          <View style={styles.howItWorksRow}>
+            <Feather name="info" size={13} color={ACCENT_TRAVEL} style={{ marginTop: 1 }} />
+            <Text style={styles.howItWorksText}>
+              <Text style={styles.howItWorksBold}>How to use: </Text>
+              Select your language and the other person's language, then tap the mic and speak — the app will translate your speech in real time. The other person can reply in their language and you will see the translation instantly. Great for travel, meetings, and cross-language conversations.
+            </Text>
+          </View>
+        </View>
+
         {/* Language selector */}
         <View style={styles.langSelector}>
           <Pressable style={styles.langBtn} onPress={() => setShowMyPicker(true)}>
@@ -1677,6 +1688,29 @@ const styles = StyleSheet.create({
   },
   scroll: {
     paddingHorizontal: 18,
+  },
+
+  howItWorksCard: {
+    backgroundColor: ACCENT_TRAVEL + "0C",
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: ACCENT_TRAVEL + "33",
+  },
+  howItWorksRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  howItWorksText: {
+    flex: 1,
+    fontSize: 12,
+    color: Colors.textSecondary,
+    lineHeight: 18,
+  },
+  howItWorksBold: {
+    fontWeight: "700",
+    color: Colors.text,
   },
 
   header: {

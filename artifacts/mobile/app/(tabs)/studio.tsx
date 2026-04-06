@@ -1,4 +1,4 @@
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, Feather } from "@expo/vector-icons";
 import { Audio } from "expo-av";
 import * as Haptics from "expo-haptics";
 import * as Speech from "expo-speech";
@@ -855,6 +855,17 @@ export default function VoiceStudioScreen() {
             </View>
           )}
 
+          {/* How to use note */}
+          <View style={styles.howItWorksCard}>
+            <View style={styles.howItWorksRow}>
+              <Feather name="info" size={13} color={Colors.accentSecondary} style={{ marginTop: 1 }} />
+              <Text style={styles.howItWorksText}>
+                <Text style={styles.howItWorksBold}>How to use: </Text>
+                Record a short voice sample to clone your voice, then type or paste any text and choose a persona style (Default, Confident, or Calm). Tap <Text style={styles.howItWorksBold}>Generate Speech</Text> to hear your words spoken back in your own cloned voice.
+              </Text>
+            </View>
+          </View>
+
           {/* ElevenLabs settings bar */}
           {isWebPlatform && (
             <View style={styles.elSettingsWrapper}>
@@ -1215,6 +1226,29 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,
+  },
+
+  howItWorksCard: {
+    backgroundColor: Colors.accentSecondary + "0C",
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: Colors.accentSecondary + "33",
+  },
+  howItWorksRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  howItWorksText: {
+    flex: 1,
+    fontSize: 12,
+    color: Colors.textSecondary,
+    lineHeight: 18,
+  },
+  howItWorksBold: {
+    fontWeight: "700",
+    color: Colors.text,
   },
 
   webHeader: {

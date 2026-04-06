@@ -333,6 +333,17 @@ export default function CreatorModeScreen() {
             </View>
           </View>
 
+          {/* How to use note */}
+          <View style={styles.howItWorksCard}>
+            <View style={styles.howItWorksRow}>
+              <Feather name="info" size={13} color={ACCENT_PURPLE} style={{ marginTop: 1 }} />
+              <Text style={styles.howItWorksText}>
+                <Text style={styles.howItWorksBold}>How to use: </Text>
+                Enter any topic and let AI write a ready-to-speak script for you. Review and edit the script if needed, then tap <Text style={styles.howItWorksBold}>Generate Speech</Text> to hear it spoken aloud in your cloned voice persona.
+              </Text>
+            </View>
+          </View>
+
           {/* Step indicator */}
           <View style={styles.stepRow}>
             {[1, 2, 3].map((s) => (
@@ -595,6 +606,30 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   container: { flex: 1, backgroundColor: Colors.background },
   scroll: { paddingHorizontal: 18, paddingBottom: 20 },
+
+  howItWorksCard: {
+    backgroundColor: ACCENT_PURPLE + "0C",
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: ACCENT_PURPLE + "33",
+    marginBottom: 4,
+  },
+  howItWorksRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  howItWorksText: {
+    flex: 1,
+    fontSize: 12,
+    color: Colors.textSecondary,
+    lineHeight: 18,
+  },
+  howItWorksBold: {
+    fontWeight: "700",
+    color: Colors.text,
+  },
 
   header: {
     flexDirection: "row",
