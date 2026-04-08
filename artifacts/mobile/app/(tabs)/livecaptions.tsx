@@ -82,6 +82,28 @@ function getApiBase(): string {
   return "http://localhost:8080/api";
 }
 
+function copyToClipboard(text: string): void {
+  if (typeof navigator !== "undefined" && navigator.clipboard) {
+    navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
+  } else {
+    fallbackCopy(text);
+  }
+}
+
+function fallbackCopy(text: string): void {
+  if (typeof document === "undefined") return;
+  const el = document.createElement("textarea");
+  el.value = text;
+  el.setAttribute("readonly", "");
+  el.style.cssText = "position:absolute;left:-9999px;top:-9999px;";
+  document.body.appendChild(el);
+  el.focus();
+  el.select();
+  el.setSelectionRange(0, el.value.length);
+  try { document.execCommand("copy"); } catch { /* silent */ }
+  document.body.removeChild(el);
+}
+
 const LANG_FLAGS: Record<string, string> = {
   en: "🇺🇸", hi: "🇮🇳", te: "🇮🇳", ta: "🇮🇳", kn: "🇮🇳",
   ml: "🇮🇳", bn: "🇧🇩", mr: "🇮🇳", gu: "🇮🇳", pa: "🇮🇳",
@@ -286,6 +308,8 @@ export default function LiveCaptionsTab() {
   const [viewerTranslations, setViewerTranslations] = useState<{ id: string; original: string; translations: Record<string, string>; timestamp: number }[]>([]);
   const [viewerLastTs, setViewerLastTs] = useState(0);
   const [roomError, setRoomError] = useState("");
+  const [copiedRoomCode, setCopiedRoomCode] = useState(false);
+  const [copiedAll, setCopiedAll] = useState(false);
 
   // Refs
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -704,9 +728,9 @@ export default function LiveCaptionsTab() {
       parts.push(`${label}:\n${ts.text}`);
     }
     const text = parts.length > 0 ? parts.join("\n\n") : transcript;
-    if (typeof navigator !== "undefined" && navigator.clipboard) {
-      navigator.clipboard.writeText(text).catch(() => {});
-    }
+    copyToClipboard(text);
+    setCopiedAll(true);
+    setTimeout(() => setCopiedAll(false), 2000);
   }, [transcript, translationsByLang, langCode, langLabel]);
 
   const handleClear = useCallback(() => {
@@ -887,52 +911,92 @@ export default function LiveCaptionsTab() {
           <Animated.View entering={FadeInDown} style={styles.roomCard}>
             {roomId ? (
               <>
+                {/* Header */}
                 <View style={styles.roomCardHeader}>
-                  <Feather name="share-2" size={14} color={Colors.accent} />
-                  <Text style={styles.roomCardTitle}>Room Active</Text>
+                  <View style={styles.roomBroadcastBadge}>
+                    <View style={styles.roomBroadcastDot} />
+                    <Text style={styles.roomBroadcastText}>Broadcasting</Text>
+                  </View>
                   <Pressable style={styles.roomCloseBtn} onPress={handleLeaveRoom}>
                     <Feather name="x" size={13} color={Colors.textTertiary} />
                   </Pressable>
                 </View>
-                <Text style={styles.roomCodeLabel}>Share this code with your colleague:</Text>
+
+                {/* Room code + copy */}
+                <Text style={styles.roomCodeLabel}>Your room code</Text>
                 <View style={styles.roomCodeRow}>
                   <Text style={styles.roomCode}>{roomId}</Text>
                   <Pressable
-                    style={styles.roomCopyBtn}
+                    style={[styles.roomCopyBtn, copiedRoomCode && { backgroundColor: Colors.accent + "25", borderColor: Colors.accent + "60" }]}
                     onPress={() => {
-                      if (typeof navigator !== "undefined" && navigator.clipboard) {
-                        navigator.clipboard.writeText(
-                          `Join my Live Interpreter session — Room Code: ${roomId}`
-                        );
-                      }
+                      copyToClipboard(roomId);
+                      setCopiedRoomCode(true);
+                      setTimeout(() => setCopiedRoomCode(false), 2000);
                     }}
                   >
-                    <Feather name="copy" size={13} color={Colors.accent} />
-                    <Text style={styles.roomCopyText}>Copy</Text>
+                    <Feather name={copiedRoomCode ? "check" : "copy"} size={13} color={Colors.accent} />
+                    <Text style={styles.roomCopyText}>{copiedRoomCode ? "Copied!" : "Copy Code"}</Text>
                   </Pressable>
                 </View>
-                <Text style={styles.roomHint}>They open Live Interpreter → tap Share → Join Room → enter this code. Room expires in 2 hours.</Text>
+
+                {/* What happens */}
+                <View style={styles.roomExplainBox}>
+                  <Text style={styles.roomExplainTitle}>What happens now?</Text>
+                  <Text style={styles.roomExplainBody}>
+                    As you speak and get translations, they sync to this room automatically. Your colleague can watch them appear live on their own phone — no login required.
+                  </Text>
+                </View>
+
+                {/* Step-by-step for colleague */}
+                <Text style={styles.roomStepsTitle}>Tell your colleague to:</Text>
+                {[
+                  "Open Voice Persona AI on their device",
+                  "Go to the Interpreter tab",
+                  `Tap the share icon (top-right) → Join Room`,
+                  `Enter code  ${roomId}  and tap Join`,
+                ].map((step, i) => (
+                  <View key={i} style={styles.roomStep}>
+                    <View style={styles.roomStepNum}>
+                      <Text style={styles.roomStepNumText}>{i + 1}</Text>
+                    </View>
+                    <Text style={styles.roomStepText}>{step}</Text>
+                  </View>
+                ))}
+
+                <Text style={styles.roomHint}>Room expires automatically after 2 hours.</Text>
               </>
             ) : (
               <>
                 <View style={styles.roomCardHeader}>
                   <Feather name="share-2" size={14} color={Colors.accent} />
-                  <Text style={styles.roomCardTitle}>Share or Join a Room</Text>
+                  <Text style={styles.roomCardTitle}>Session Rooms</Text>
+                  <Pressable style={styles.roomCloseBtn} onPress={() => setShowRoomCard(false)}>
+                    <Feather name="x" size={13} color={Colors.textTertiary} />
+                  </Pressable>
                 </View>
+
+                <Text style={styles.roomExplainBody}>
+                  A room lets someone on another device follow your live translations as you speak — in real time, with no account needed.
+                </Text>
+
                 {!!roomError && <Text style={styles.roomErrorText}>{roomError}</Text>}
+
                 <Pressable style={styles.roomCreateBtn} onPress={handleCreateRoom}>
-                  <Feather name="plus-circle" size={14} color="#000" />
-                  <Text style={styles.roomCreateBtnText}>Create Room & Share</Text>
+                  <Feather name="radio" size={14} color="#000" />
+                  <Text style={styles.roomCreateBtnText}>Start Broadcasting (Create Room)</Text>
                 </Pressable>
+
                 <View style={styles.roomDivider}>
                   <View style={styles.roomDividerLine} />
-                  <Text style={styles.roomDividerText}>or join existing</Text>
+                  <Text style={styles.roomDividerText}>or join someone else's room</Text>
                   <View style={styles.roomDividerLine} />
                 </View>
+
+                <Text style={styles.roomCodeLabel}>Enter a room code shared with you:</Text>
                 <View style={styles.roomJoinRow}>
                   <TextInput
                     style={styles.roomCodeInput}
-                    placeholder="Room code (e.g. A3F7)"
+                    placeholder="e.g. B34961"
                     placeholderTextColor={Colors.textTertiary}
                     value={viewerCodeInput}
                     onChangeText={(t) => setViewerCodeInput(t.toUpperCase())}
@@ -1228,9 +1292,7 @@ export default function LiveCaptionsTab() {
                       <Pressable
                         style={styles.translationIconBtn}
                         onPress={() => {
-                          if (ts?.text && typeof navigator !== "undefined" && navigator.clipboard) {
-                            navigator.clipboard.writeText(ts.text).catch(() => {});
-                          }
+                          if (ts?.text) copyToClipboard(ts.text);
                         }}
                       >
                         <Feather name="copy" size={13} color={Colors.textTertiary} />
@@ -1262,8 +1324,8 @@ export default function LiveCaptionsTab() {
             {/* Caption actions */}
             <View style={styles.captionActions}>
               <Pressable style={styles.captionAction} onPress={handleCopy}>
-                <Feather name="copy" size={13} color={Colors.textSecondary} />
-                <Text style={styles.captionActionText}>Copy All</Text>
+                <Feather name={copiedAll ? "check" : "copy"} size={13} color={copiedAll ? Colors.accent : Colors.textSecondary} />
+                <Text style={[styles.captionActionText, copiedAll && { color: Colors.accent }]}>{copiedAll ? "Copied!" : "Copy All"}</Text>
               </Pressable>
               <Pressable style={styles.captionAction} onPress={handleSaveToHistory}>
                 <Feather name="bookmark" size={13} color={Colors.textSecondary} />
@@ -2134,6 +2196,79 @@ const styles = StyleSheet.create({
   },
   roomCloseBtn: {
     padding: 4,
+  },
+  roomBroadcastBadge: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  roomBroadcastDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#22C55E",
+    shadowColor: "#22C55E",
+    shadowOpacity: 0.8,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  roomBroadcastText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#22C55E",
+    letterSpacing: 0.3,
+  },
+  roomExplainBox: {
+    backgroundColor: Colors.accent + "0C",
+    borderRadius: 10,
+    padding: 12,
+    gap: 4,
+    borderWidth: 1,
+    borderColor: Colors.accent + "22",
+  },
+  roomExplainTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: Colors.accent,
+  },
+  roomExplainBody: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    lineHeight: 18,
+  },
+  roomStepsTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: Colors.textSecondary,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  roomStep: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+  roomStepNum: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: Colors.accent + "22",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 1,
+    flexShrink: 0,
+  },
+  roomStepNumText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: Colors.accent,
+  },
+  roomStepText: {
+    flex: 1,
+    fontSize: 13,
+    color: Colors.text,
+    lineHeight: 20,
   },
   roomCodeLabel: {
     fontSize: 12,
