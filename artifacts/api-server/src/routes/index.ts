@@ -4,6 +4,8 @@ import enhanceRouter from "./enhance";
 import healthRouter from "./health";
 import insightsRouter from "./insights";
 import liveCaptionsRouter from "./livecaptions";
+import ocrRouter from "./ocr";
+import roomsRouter from "./rooms";
 import transcribeRouter from "./transcribe";
 
 const router: IRouter = Router();
@@ -14,5 +16,7 @@ router.use(elevenLabsRouter);
 router.use(transcribeRouter);
 router.use(insightsRouter);
 router.use(liveCaptionsRouter);
+router.use(ocrRouter);
+router.use(roomsRouter);
 
 export default router;

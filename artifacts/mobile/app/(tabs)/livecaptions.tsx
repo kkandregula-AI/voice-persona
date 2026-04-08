@@ -278,6 +278,15 @@ export default function LiveCaptionsTab() {
   const [history, setHistory] = useState<CaptionEntry[]>([]);
   const [historyExpanded, setHistoryExpanded] = useState<boolean>(false);
 
+  // Shared Room
+  const [roomId, setRoomId] = useState<string>("");
+  const [showRoomCard, setShowRoomCard] = useState(false);
+  const [isViewer, setIsViewer] = useState(false);
+  const [viewerCodeInput, setViewerCodeInput] = useState("");
+  const [viewerTranslations, setViewerTranslations] = useState<{ id: string; original: string; translations: Record<string, string>; timestamp: number }[]>([]);
+  const [viewerLastTs, setViewerLastTs] = useState(0);
+  const [roomError, setRoomError] = useState("");
+
   // Refs
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -290,6 +299,9 @@ export default function LiveCaptionsTab() {
   const accumulatedByLangRef = useRef<Record<string, string>>({});
   const listeningRef = useRef<boolean>(false);
   const targetLangsRef = useRef<string[]>(["en"]);
+  const viewerPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const activeRoomIdRef = useRef<string>("");
+  const viewerLastTsRef = useRef<number>(0);
 
   // Load stored key, history, and target langs on mount
   useEffect(() => {
@@ -439,6 +451,14 @@ export default function LiveCaptionsTab() {
       if (listeningRef.current) setStatus("listening");
 
       await translateToAllTargets(newText, data.languageCode);
+
+      if (activeRoomIdRef.current) {
+        const translationsSnapshot: Record<string, string> = {};
+        for (const [lang, val] of Object.entries(accumulatedByLangRef.current)) {
+          translationsSnapshot[lang] = val;
+        }
+        void pushToRoom(accumulatedRef.current, translationsSnapshot);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Transcription failed";
       setErrorMsg(msg);
@@ -722,6 +742,89 @@ export default function LiveCaptionsTab() {
     saveHistory(updated);
   }, [history]);
 
+  // ── Shared Room ──
+
+  const handleCreateRoom = useCallback(async () => {
+    setRoomError("");
+    try {
+      const res = await fetch(`${getApiBase()}/rooms`, { method: "POST" });
+      if (!res.ok) throw new Error("Could not create room");
+      const data = await res.json() as { roomId: string };
+      setRoomId(data.roomId);
+      activeRoomIdRef.current = data.roomId;
+      setShowRoomCard(true);
+    } catch (err) {
+      setRoomError(err instanceof Error ? err.message : "Failed to create room");
+    }
+  }, []);
+
+  const pushToRoom = useCallback(async (original: string, translations: Record<string, string>) => {
+    const id = activeRoomIdRef.current;
+    if (!id) return;
+    try {
+      await fetch(`${getApiBase()}/rooms/${id}/push`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ original, translations }),
+      });
+    } catch {
+      // silently skip push errors
+    }
+  }, []);
+
+  const handleJoinRoom = useCallback(async () => {
+    const code = viewerCodeInput.trim().toUpperCase();
+    if (!code) return;
+    setRoomError("");
+    try {
+      const res = await fetch(`${getApiBase()}/rooms/${code}`);
+      if (!res.ok) throw new Error("Room not found or expired");
+      viewerLastTsRef.current = 0;
+      setIsViewer(true);
+      setViewerLastTs(0);
+      setViewerTranslations([]);
+      activeRoomIdRef.current = code;
+      if (viewerPollRef.current) clearInterval(viewerPollRef.current);
+      viewerPollRef.current = setInterval(async () => {
+        try {
+          const pollRes = await fetch(
+            `${getApiBase()}/rooms/${activeRoomIdRef.current}/pull?since=${viewerLastTsRef.current}`
+          );
+          if (!pollRes.ok) return;
+          const pollData = await pollRes.json() as { translations: { id: string; original: string; translations: Record<string, string>; timestamp: number }[] };
+          if (pollData.translations?.length > 0) {
+            setViewerTranslations((prev) => {
+              const ids = new Set(prev.map((t) => t.id));
+              const fresh = pollData.translations.filter((t) => !ids.has(t.id));
+              return [...prev, ...fresh].slice(-30);
+            });
+            const latest = pollData.translations[pollData.translations.length - 1];
+            if (latest) {
+              viewerLastTsRef.current = latest.timestamp;
+              setViewerLastTs(latest.timestamp);
+            }
+          }
+        } catch { /* skip */ }
+      }, 2500);
+    } catch (err) {
+      setRoomError(err instanceof Error ? err.message : "Could not join room");
+    }
+  }, [viewerCodeInput]);
+
+  const stopViewer = useCallback(() => {
+    if (viewerPollRef.current) { clearInterval(viewerPollRef.current); viewerPollRef.current = null; }
+    setIsViewer(false);
+    setViewerTranslations([]);
+    setViewerCodeInput("");
+    activeRoomIdRef.current = "";
+  }, []);
+
+  const handleLeaveRoom = useCallback(() => {
+    setRoomId("");
+    activeRoomIdRef.current = "";
+    setShowRoomCard(false);
+  }, []);
+
   // ── Derived ──
 
   const hasKey = !!elKey;
@@ -752,10 +855,127 @@ export default function LiveCaptionsTab() {
               <Text style={styles.headerSub}>Speak → transcript + multi-language translations</Text>
             </View>
           </View>
-          <Pressable style={styles.settingsBtn} onPress={() => setSettingsOpen((v) => !v)}>
-            <Feather name={settingsOpen ? "x" : "settings"} size={18} color={Colors.textSecondary} />
-          </Pressable>
+          <View style={styles.headerActions}>
+            {!isViewer && (
+              <Pressable
+                style={[styles.shareRoomBtn, (roomId || showRoomCard) && { borderColor: Colors.accent + "60", backgroundColor: Colors.accent + "12" }]}
+                onPress={() => {
+                  if (roomId) {
+                    setShowRoomCard((v) => !v);
+                  } else {
+                    setShowRoomCard((v) => !v);
+                  }
+                }}
+              >
+                <Feather name="share-2" size={14} color={roomId ? Colors.accent : Colors.textSecondary} />
+              </Pressable>
+            )}
+            {isViewer && (
+              <Pressable style={styles.leaveRoomBtn} onPress={stopViewer}>
+                <Feather name="x" size={13} color={Colors.error ?? "#EF4444"} />
+                <Text style={styles.leaveRoomBtnText}>Leave</Text>
+              </Pressable>
+            )}
+            <Pressable style={styles.settingsBtn} onPress={() => setSettingsOpen((v) => !v)}>
+              <Feather name={settingsOpen ? "x" : "settings"} size={18} color={Colors.textSecondary} />
+            </Pressable>
+          </View>
         </View>
+
+        {/* ── Room card ───────────────────────────────────────────────── */}
+        {showRoomCard && !isViewer && (
+          <Animated.View entering={FadeInDown} style={styles.roomCard}>
+            {roomId ? (
+              <>
+                <View style={styles.roomCardHeader}>
+                  <Feather name="share-2" size={14} color={Colors.accent} />
+                  <Text style={styles.roomCardTitle}>Room Active</Text>
+                  <Pressable style={styles.roomCloseBtn} onPress={handleLeaveRoom}>
+                    <Feather name="x" size={13} color={Colors.textTertiary} />
+                  </Pressable>
+                </View>
+                <Text style={styles.roomCodeLabel}>Share this code with your colleague:</Text>
+                <View style={styles.roomCodeRow}>
+                  <Text style={styles.roomCode}>{roomId}</Text>
+                  <Pressable
+                    style={styles.roomCopyBtn}
+                    onPress={() => {
+                      if (typeof navigator !== "undefined" && navigator.clipboard) {
+                        navigator.clipboard.writeText(
+                          `Join my Live Interpreter session — Room Code: ${roomId}`
+                        );
+                      }
+                    }}
+                  >
+                    <Feather name="copy" size={13} color={Colors.accent} />
+                    <Text style={styles.roomCopyText}>Copy</Text>
+                  </Pressable>
+                </View>
+                <Text style={styles.roomHint}>They open Live Interpreter → tap Share → Join Room → enter this code. Room expires in 2 hours.</Text>
+              </>
+            ) : (
+              <>
+                <View style={styles.roomCardHeader}>
+                  <Feather name="share-2" size={14} color={Colors.accent} />
+                  <Text style={styles.roomCardTitle}>Share or Join a Room</Text>
+                </View>
+                {!!roomError && <Text style={styles.roomErrorText}>{roomError}</Text>}
+                <Pressable style={styles.roomCreateBtn} onPress={handleCreateRoom}>
+                  <Feather name="plus-circle" size={14} color="#000" />
+                  <Text style={styles.roomCreateBtnText}>Create Room & Share</Text>
+                </Pressable>
+                <View style={styles.roomDivider}>
+                  <View style={styles.roomDividerLine} />
+                  <Text style={styles.roomDividerText}>or join existing</Text>
+                  <View style={styles.roomDividerLine} />
+                </View>
+                <View style={styles.roomJoinRow}>
+                  <TextInput
+                    style={styles.roomCodeInput}
+                    placeholder="Room code (e.g. A3F7)"
+                    placeholderTextColor={Colors.textTertiary}
+                    value={viewerCodeInput}
+                    onChangeText={(t) => setViewerCodeInput(t.toUpperCase())}
+                    autoCapitalize="characters"
+                    maxLength={8}
+                  />
+                  <Pressable
+                    style={[styles.roomJoinBtn, !viewerCodeInput.trim() && { opacity: 0.4 }]}
+                    onPress={handleJoinRoom}
+                    disabled={!viewerCodeInput.trim()}
+                  >
+                    <Text style={styles.roomJoinBtnText}>Join</Text>
+                  </Pressable>
+                </View>
+              </>
+            )}
+          </Animated.View>
+        )}
+
+        {/* ── Viewer mode panel ───────────────────────────────────────── */}
+        {isViewer && (
+          <Animated.View entering={FadeInDown} style={styles.viewerPanel}>
+            <View style={styles.viewerPanelHeader}>
+              <View style={styles.viewerLiveDot} />
+              <Text style={styles.viewerPanelTitle}>Viewing Room · {activeRoomIdRef.current}</Text>
+            </View>
+            {viewerTranslations.length === 0 ? (
+              <Text style={styles.viewerWaiting}>Waiting for translations from the host…</Text>
+            ) : (
+              viewerTranslations.slice().reverse().map((item) => (
+                <View key={item.id} style={styles.viewerEntry}>
+                  <Text style={styles.viewerOriginal}>{item.original}</Text>
+                  {Object.entries(item.translations).map(([lang, text]) => (
+                    <Text key={lang} style={styles.viewerTranslation}>
+                      <Text style={styles.viewerLangLabel}>{ALL_LANG_MAP[lang]?.label ?? lang}: </Text>
+                      {text}
+                    </Text>
+                  ))}
+                </View>
+              ))
+            )}
+          </Animated.View>
+        )}
 
         {/* ── How it works note ──────────────────────────────────────── */}
         <View style={styles.howItWorksCard}>
@@ -1860,5 +2080,215 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: Colors.text,
     lineHeight: 20,
+  },
+
+  // ── Header Actions ──
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  shareRoomBtn: {
+    padding: 8,
+    borderRadius: 10,
+    backgroundColor: Colors.card,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  leaveRoomBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 10,
+    backgroundColor: (Colors.error ?? "#EF4444") + "15",
+    borderWidth: 1,
+    borderColor: (Colors.error ?? "#EF4444") + "40",
+  },
+  leaveRoomBtnText: {
+    color: Colors.error ?? "#EF4444",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+
+  // ── Room Card ──
+  roomCard: {
+    backgroundColor: Colors.card,
+    borderRadius: 16,
+    padding: 16,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: Colors.accent + "30",
+  },
+  roomCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  roomCardTitle: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "700",
+    color: Colors.text,
+  },
+  roomCloseBtn: {
+    padding: 4,
+  },
+  roomCodeLabel: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  roomCodeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  roomCode: {
+    flex: 1,
+    fontSize: 28,
+    fontWeight: "800",
+    color: Colors.accent,
+    letterSpacing: 4,
+  },
+  roomCopyBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: Colors.accent + "15",
+    borderWidth: 1,
+    borderColor: Colors.accent + "40",
+  },
+  roomCopyText: {
+    color: Colors.accent,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  roomHint: {
+    fontSize: 11,
+    color: Colors.textTertiary,
+    lineHeight: 16,
+  },
+  roomCreateBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: Colors.accent,
+    borderRadius: 10,
+    paddingVertical: 12,
+  },
+  roomCreateBtnText: {
+    color: "#000",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  roomDivider: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  roomDividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: Colors.cardBorder,
+  },
+  roomDividerText: {
+    color: Colors.textTertiary,
+    fontSize: 11,
+  },
+  roomJoinRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  roomCodeInput: {
+    flex: 1,
+    backgroundColor: Colors.background,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 16,
+    fontWeight: "700",
+    color: Colors.text,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    letterSpacing: 3,
+  },
+  roomJoinBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: Colors.accent,
+    justifyContent: "center",
+  },
+  roomJoinBtnText: {
+    color: "#000",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  roomErrorText: {
+    color: Colors.error ?? "#EF4444",
+    fontSize: 12,
+  },
+
+  // ── Viewer Panel ──
+  viewerPanel: {
+    backgroundColor: Colors.card,
+    borderRadius: 16,
+    padding: 14,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: Colors.accent + "30",
+  },
+  viewerPanelHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  viewerLiveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: Colors.accent,
+    shadowColor: Colors.accent,
+    shadowOpacity: 0.8,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  viewerPanelTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: Colors.accent,
+    letterSpacing: 0.5,
+  },
+  viewerWaiting: {
+    fontSize: 13,
+    color: Colors.textTertiary,
+    textAlign: "center",
+    paddingVertical: 8,
+  },
+  viewerEntry: {
+    gap: 4,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.cardBorder,
+  },
+  viewerOriginal: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: Colors.text,
+    lineHeight: 20,
+  },
+  viewerTranslation: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+    lineHeight: 18,
+  },
+  viewerLangLabel: {
+    color: Colors.textTertiary,
+    fontWeight: "600",
   },
 });

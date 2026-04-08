@@ -427,6 +427,8 @@ export default function TravelTalkScreen() {
   const [typeInput, setTypeInput] = useState("");
   const [typeTranslation, setTypeTranslation] = useState("");
   const [typeLoading, setTypeLoading] = useState(false);
+  const [ocrLoading, setOcrLoading] = useState(false);
+  const [ocrError, setOcrError] = useState("");
   const [speechSupported, setSpeechSupported] = useState(true);
 
   const stopRecognitionRef = useRef<(() => void) | null>(null);
@@ -1131,6 +1133,41 @@ export default function TravelTalkScreen() {
     }
   };
 
+  const handleOcrCapture = async (file: File) => {
+    setOcrLoading(true);
+    setOcrError("");
+    try {
+      const reader = new FileReader();
+      const base64 = await new Promise<string>((resolve, reject) => {
+        reader.onload = () => {
+          const result = reader.result as string;
+          resolve(result.split(",")[1] ?? "");
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const res = await fetch(`${getApiBase()}/ocr-translate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          imageBase64: base64,
+          mimeType: file.type || "image/jpeg",
+          targetLang: theirLang.code,
+          targetLangName: theirLang.label,
+        }),
+      });
+      if (!res.ok) throw new Error("OCR failed");
+      const data = await res.json() as { extractedText: string; translatedText: string };
+      setTypeInput(data.extractedText ?? "");
+      setTypeTranslation(data.translatedText ?? "");
+      if (data.translatedText) speakText(data.translatedText, theirLang.code);
+    } catch (err) {
+      setOcrError(err instanceof Error ? err.message : "OCR failed");
+    } finally {
+      setOcrLoading(false);
+    }
+  };
+
   return (
     <View style={[styles.container, { paddingTop: topPad }]}>
       {subview === "memory" && (
@@ -1583,7 +1620,31 @@ export default function TravelTalkScreen() {
           <View style={styles.typeSectionHeader}>
             <Feather name="edit-3" size={13} color={ACCENT_TRAVEL} />
             <Text style={styles.typeSectionLabel}>Type to Translate</Text>
+            {Platform.OS === "web" && (
+              <Pressable
+                style={[styles.ocrCameraBtn, ocrLoading && { opacity: 0.5 }]}
+                onPress={() => {
+                  if (typeof document === "undefined" || ocrLoading) return;
+                  const input = document.createElement("input");
+                  input.type = "file";
+                  input.accept = "image/*";
+                  input.capture = "environment";
+                  input.onchange = (e) => {
+                    const file = (e.target as HTMLInputElement).files?.[0];
+                    if (file) handleOcrCapture(file);
+                  };
+                  input.click();
+                }}
+                disabled={ocrLoading}
+              >
+                <Feather name={ocrLoading ? "loader" : "camera"} size={13} color={ACCENT_TRAVEL} />
+                <Text style={styles.ocrCameraBtnText}>{ocrLoading ? "Scanning…" : "Scan Image"}</Text>
+              </Pressable>
+            )}
           </View>
+          {!!ocrError && (
+            <Text style={styles.ocrErrorText}>{ocrError}</Text>
+          )}
           <View style={styles.typeInputRow}>
             <TextInput
               style={styles.typeInput}
@@ -2052,6 +2113,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
     marginBottom: 10,
+    justifyContent: "space-between",
   },
   typeSectionLabel: {
     fontSize: 12,
@@ -2059,6 +2121,28 @@ const styles = StyleSheet.create({
     color: ACCENT_TRAVEL,
     letterSpacing: 0.5,
     textTransform: "uppercase",
+    flex: 1,
+  },
+  ocrCameraBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: ACCENT_TRAVEL + "40",
+    backgroundColor: ACCENT_TRAVEL + "0C",
+  },
+  ocrCameraBtnText: {
+    color: ACCENT_TRAVEL,
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  ocrErrorText: {
+    color: Colors.error ?? "#EF4444",
+    fontSize: 11,
+    marginBottom: 6,
   },
   typeInputRow: {
     flexDirection: "row",

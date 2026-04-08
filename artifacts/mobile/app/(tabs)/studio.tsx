@@ -42,6 +42,28 @@ const EMOTIONS: { key: Emotion; label: string; icon: string; desc: string }[] = 
 const VOICE_CAPTURE_PROMPT =
   "Hi! I'd like to capture your unique voice. Please read this sentence naturally in your own voice — just speak as you normally would:";
 
+function fmtSRT(secs: number): string {
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = Math.floor(secs % 60);
+  const ms = Math.round((secs % 1) * 1000);
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")},${String(ms).padStart(3, "0")}`;
+}
+
+function buildSRTContent(text: string, wpm: number): string {
+  const words = text.split(/\s+/).filter(Boolean);
+  const wps = wpm / 60;
+  const chunk = 7;
+  const blocks: string[] = [];
+  for (let i = 0; i < words.length; i += chunk) {
+    const line = words.slice(i, i + chunk).join(" ");
+    const startSec = i / wps;
+    const endSec = Math.min((i + chunk) / wps, words.length / wps);
+    blocks.push(`${blocks.length + 1}\n${fmtSRT(startSec)} --> ${fmtSRT(endSec)}\n${line}`);
+  }
+  return blocks.join("\n\n");
+}
+
 const VOICE_SAMPLE_SENTENCE =
   "The quick brown fox jumps over the lazy dog. I love the sound of my own voice, and today is a wonderful day to share it with the world.";
 
@@ -553,6 +575,21 @@ export default function VoiceStudioScreen() {
 
   const hasElevenLabs = !!elevenLabsKey && Platform.OS === "web";
   const isWebPlatform = Platform.OS === "web";
+
+  const handleExportSRT = () => {
+    if (!currentText.trim() || typeof window === "undefined") return;
+    const wpm = currentMode === "news" ? 160 : currentMode === "story" ? 120 : 140;
+    const srt = buildSRTContent(currentText.trim(), wpm);
+    const blob = new Blob([srt], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "captions.srt";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   const elevenLabsSettingsCard = (
     <View style={styles.elSettingsCard}>
@@ -1073,6 +1110,13 @@ export default function VoiceStudioScreen() {
                   {currentText.length} characters
                 </Text>
               </View>
+
+              {isWebPlatform && currentText.trim().length > 0 && (
+                <Pressable style={styles.srtRow} onPress={handleExportSRT}>
+                  <Feather name="file-text" size={13} color={Colors.accentTertiary} />
+                  <Text style={styles.srtRowText}>Export Captions (.SRT)</Text>
+                </Pressable>
+              )}
 
               {currentAudioUri && hasElevenLabs && (
                 <Animated.View entering={FadeInDown} style={styles.section}>
@@ -1908,6 +1952,24 @@ const styles = StyleSheet.create({
   },
   recordNotNeededLinkText: {
     color: Colors.accent,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+
+  srtRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    alignSelf: "flex-start",
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.accentTertiary + "40",
+    backgroundColor: Colors.accentTertiary + "0C",
+  },
+  srtRowText: {
+    color: Colors.accentTertiary,
     fontSize: 12,
     fontWeight: "600",
   },
