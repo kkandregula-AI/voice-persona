@@ -1238,7 +1238,7 @@ export default function TravelTalkScreen() {
             <Feather name="info" size={13} color={ACCENT_TRAVEL} style={{ marginTop: 1 }} />
             <Text style={styles.howItWorksText}>
               <Text style={styles.howItWorksBold}>How to use: </Text>
-              Select your language and the other person's language, then tap the mic and speak — the app will translate your speech in real time. The other person can reply in their language and you will see the translation instantly. Great for travel, meetings, and cross-language conversations.
+              Select your language and the other person's language, then tap the mic and speak — the app will translate your speech in real time. The other person can reply in their language and you will see the translation instantly. You can also type in the <Text style={styles.howItWorksBold}>Type to Translate</Text> box, or tap <Text style={styles.howItWorksBold}>Scan Image</Text> to point your camera at any sign, menu, or document and get an instant translation.
             </Text>
           </View>
         </View>

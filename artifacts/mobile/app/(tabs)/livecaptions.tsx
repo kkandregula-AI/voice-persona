@@ -983,7 +983,7 @@ export default function LiveCaptionsTab() {
             <Feather name="info" size={13} color={Colors.accent} style={{ marginTop: 1 }} />
             <Text style={styles.howItWorksText}>
               <Text style={styles.howItWorksBold}>How to use: </Text>
-              Speak in your language — the app listens for up to 10 seconds, transcribes what you said, and instantly translates it into one or more languages you select below. Tap <Text style={styles.howItWorksBold}>Speak</Text> on any translation card to hear it read aloud in that language.
+              Speak in your language — the app listens for up to 10 seconds, transcribes what you said, and instantly translates it into one or more languages you select below. Tap <Text style={styles.howItWorksBold}>Speak</Text> on any translation card to hear it read aloud in that language. Tap the <Text style={styles.howItWorksBold}>share icon</Text> in the header to create a room code and share it with a colleague — they can join from their own device to follow your live translations in real time.
             </Text>
           </View>
         </View>

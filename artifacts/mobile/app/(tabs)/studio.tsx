@@ -898,7 +898,7 @@ export default function VoiceStudioScreen() {
               <Feather name="info" size={13} color={Colors.accentSecondary} style={{ marginTop: 1 }} />
               <Text style={styles.howItWorksText}>
                 <Text style={styles.howItWorksBold}>How to use: </Text>
-                Record a short voice sample to clone your voice, then type or paste any text and choose a persona style (Default, Confident, or Calm). Tap <Text style={styles.howItWorksBold}>Generate Speech</Text> to hear your words spoken back in your own cloned voice.
+                Record a short voice sample to clone your voice, then type or paste any text and choose a persona style (Natural, Anchor, or Story). Tap <Text style={styles.howItWorksBold}>Generate Speech</Text> to hear your words spoken back in your own cloned voice. Once text is entered, tap <Text style={styles.howItWorksBold}>Export Captions (.SRT)</Text> to download a timed subtitle file ready for Instagram or YouTube.
               </Text>
             </View>
           </View>
