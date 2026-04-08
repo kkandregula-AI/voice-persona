@@ -151,6 +151,13 @@ export default function HomeScreen() {
               <Feather name="activity" size={18} color={Colors.success} />
               <Text style={styles.quickLabel}>Interpreter</Text>
             </Pressable>
+            <Pressable
+              style={styles.quickCard}
+              onPress={() => router.push("/(tabs)/talk")}
+            >
+              <Feather name="phone-call" size={18} color="#00D4FF" />
+              <Text style={styles.quickLabel}>Talk</Text>
+            </Pressable>
           </View>
         </Animated.View>
 
