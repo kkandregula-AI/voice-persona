@@ -84,6 +84,13 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="talk"
+        options={{
+          title: "Talk",
+          tabBarIcon: ({ color }) => <Feather name="phone-call" size={20} color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="history"
         options={{
           title: "History",

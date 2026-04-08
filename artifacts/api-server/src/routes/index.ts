@@ -7,6 +7,7 @@ import liveCaptionsRouter from "./livecaptions";
 import ocrRouter from "./ocr";
 import roomsRouter from "./rooms";
 import transcribeRouter from "./transcribe";
+import translateRouter from "./translate";
 
 const router: IRouter = Router();
 
@@ -18,5 +19,6 @@ router.use(insightsRouter);
 router.use(liveCaptionsRouter);
 router.use(ocrRouter);
 router.use(roomsRouter);
+router.use(translateRouter);
 
 export default router;

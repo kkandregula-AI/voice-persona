@@ -1,0 +1,943 @@
+import React, { useState, useRef, useEffect, useCallback } from "react";
+import {
+  View,
+  Text,
+  ScrollView,
+  Pressable,
+  TextInput,
+  StyleSheet,
+  Platform,
+  StatusBar,
+  ActivityIndicator,
+} from "react-native";
+import { Feather } from "@expo/vector-icons";
+import Animated, { FadeInDown } from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Colors } from "@/constants/colors";
+
+// ── Palette ─────────────────────────────────────────────────────────────────
+const ACCENT_A = "#00D4FF";
+const ACCENT_B = "#A78BFA";
+
+// ── Language options ─────────────────────────────────────────────────────────
+const LANG_OPTIONS = [
+  { code: "en", label: "English",    flag: "🇺🇸" },
+  { code: "hi", label: "Hindi",      flag: "🇮🇳" },
+  { code: "te", label: "Telugu",     flag: "🇮🇳" },
+  { code: "ta", label: "Tamil",      flag: "🇮🇳" },
+  { code: "kn", label: "Kannada",    flag: "🇮🇳" },
+  { code: "ml", label: "Malayalam",  flag: "🇮🇳" },
+  { code: "bn", label: "Bengali",    flag: "🇧🇩" },
+  { code: "mr", label: "Marathi",    flag: "🇮🇳" },
+  { code: "gu", label: "Gujarati",   flag: "🇮🇳" },
+  { code: "pa", label: "Punjabi",    flag: "🇮🇳" },
+  { code: "es", label: "Spanish",    flag: "🇪🇸" },
+  { code: "fr", label: "French",     flag: "🇫🇷" },
+  { code: "de", label: "German",     flag: "🇩🇪" },
+  { code: "it", label: "Italian",    flag: "🇮🇹" },
+  { code: "pt", label: "Portuguese", flag: "🇧🇷" },
+  { code: "ja", label: "Japanese",   flag: "🇯🇵" },
+  { code: "zh", label: "Chinese",    flag: "🇨🇳" },
+  { code: "ko", label: "Korean",     flag: "🇰🇷" },
+  { code: "ar", label: "Arabic",     flag: "🇸🇦" },
+  { code: "ru", label: "Russian",    flag: "🇷🇺" },
+  { code: "nl", label: "Dutch",      flag: "🇳🇱" },
+  { code: "tr", label: "Turkish",    flag: "🇹🇷" },
+  { code: "pl", label: "Polish",     flag: "🇵🇱" },
+  { code: "th", label: "Thai",       flag: "🇹🇭" },
+  { code: "vi", label: "Vietnamese", flag: "🇻🇳" },
+  { code: "id", label: "Indonesian", flag: "🇮🇩" },
+  { code: "ms", label: "Malay",      flag: "🇲🇾" },
+  { code: "tl", label: "Filipino",   flag: "🇵🇭" },
+  { code: "sw", label: "Swahili",    flag: "🇰🇪" },
+  { code: "uk", label: "Ukrainian",  flag: "🇺🇦" },
+];
+
+const SPEECH_LANG_MAP: Record<string, string> = {
+  en: "en-US", hi: "hi-IN", te: "te-IN", ta: "ta-IN", kn: "kn-IN",
+  ml: "ml-IN", bn: "bn-BD", mr: "mr-IN", gu: "gu-IN", pa: "pa-IN",
+  es: "es-ES", fr: "fr-FR", de: "de-DE", it: "it-IT", pt: "pt-BR",
+  ja: "ja-JP", zh: "zh-CN", ko: "ko-KR", ar: "ar-SA", ru: "ru-RU",
+  nl: "nl-NL", tr: "tr-TR", pl: "pl-PL", th: "th-TH", vi: "vi-VN",
+  id: "id-ID", ms: "ms-MY", tl: "fil-PH", sw: "sw-KE", uk: "uk-UA",
+};
+
+function getLangInfo(code: string) {
+  return LANG_OPTIONS.find((l) => l.code === code) ?? { code, label: code, flag: "🌐" };
+}
+
+// ── API helpers ──────────────────────────────────────────────────────────────
+function getApiBase(): string {
+  if (Platform.OS === "web" && typeof window !== "undefined") {
+    return `${window.location.origin}/api`;
+  }
+  return "http://localhost:8080/api";
+}
+
+function copyToClipboard(text: string) {
+  if (typeof navigator !== "undefined" && navigator.clipboard) {
+    navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
+  } else {
+    fallbackCopy(text);
+  }
+}
+
+function fallbackCopy(text: string) {
+  if (typeof document === "undefined") return;
+  const el = document.createElement("textarea");
+  el.value = text;
+  el.setAttribute("readonly", "");
+  el.style.cssText = "position:absolute;left:-9999px;top:-9999px;";
+  document.body.appendChild(el);
+  el.focus();
+  el.select();
+  el.setSelectionRange(0, el.value.length);
+  try { document.execCommand("copy"); } catch { /* silent */ }
+  document.body.removeChild(el);
+}
+
+// ── Types ────────────────────────────────────────────────────────────────────
+interface TalkMessage {
+  id: string;
+  timestamp: number;
+  senderRole: "A" | "B";
+  original: string;
+  translated: string;
+}
+
+type SpeakStatus = "idle" | "listening" | "translating" | "error";
+
+// ── Component ────────────────────────────────────────────────────────────────
+export default function TalkScreen() {
+  const insets = useSafeAreaInsets();
+
+  const [myLang, setMyLang]         = useState("en");
+  const [theirLang, setTheirLang]   = useState("es");
+  const [showMyPicker, setShowMyPicker]     = useState(false);
+  const [showTheirPicker, setShowTheirPicker] = useState(false);
+
+  const [roomId, setRoomId]         = useState<string | null>(null);
+  const [myRole, setMyRole]         = useState<"A" | "B" | null>(null);
+  const [joinInput, setJoinInput]   = useState("");
+  const [roomError, setRoomError]   = useState("");
+  const [messages, setMessages]     = useState<TalkMessage[]>([]);
+  const [speakStatus, setSpeakStatus] = useState<SpeakStatus>("idle");
+  const [speakError, setSpeakError]   = useState("");
+  const [demoInput, setDemoInput]     = useState("");
+  const [copiedCode, setCopiedCode]   = useState(false);
+  const [copiedLink, setCopiedLink]   = useState(false);
+
+  const scrollRef    = useRef<ScrollView>(null);
+  const pollRef      = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastTsRef    = useRef(0);
+  const myRoleRef    = useRef<"A" | "B" | null>(null);
+  const recognizerRef = useRef<InstanceType<typeof SpeechRecognition> | null>(null);
+
+  // keep ref in sync
+  useEffect(() => { myRoleRef.current = myRole; }, [myRole]);
+
+  // ── Polling ────────────────────────────────────────────────────────────────
+  const startPolling = useCallback((id: string) => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      try {
+        const role = myRoleRef.current;
+        const url = `${getApiBase()}/rooms/${id}/pull?since=${lastTsRef.current}&excludeRole=${role ?? ""}`;
+        const r = await fetch(url);
+        if (!r.ok) return;
+        const data = await r.json() as { translations: Array<{
+          id: string; timestamp: number; senderRole: "A" | "B";
+          original: string; translations: Record<string, string>;
+        }> };
+        const incoming = data.translations ?? [];
+        if (incoming.length === 0) return;
+        const newMsgs: TalkMessage[] = incoming.map((t) => ({
+          id: t.id,
+          timestamp: t.timestamp,
+          senderRole: t.senderRole,
+          original: t.original,
+          translated: Object.values(t.translations)[0] ?? t.original,
+        }));
+        const maxTs = Math.max(...incoming.map((t) => t.timestamp));
+        if (maxTs > lastTsRef.current) lastTsRef.current = maxTs;
+        setMessages((prev) => {
+          const ids = new Set(prev.map((m) => m.id));
+          const fresh = newMsgs.filter((m) => !ids.has(m.id));
+          return fresh.length > 0 ? [...prev, ...fresh] : prev;
+        });
+      } catch { /* ignore */ }
+    }, 2500);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+
+  // scroll to bottom on new messages
+  useEffect(() => {
+    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+  }, [messages]);
+
+  // ── Create room ────────────────────────────────────────────────────────────
+  async function handleCreate() {
+    setRoomError("");
+    try {
+      const r = await fetch(`${getApiBase()}/rooms`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "talk" }),
+      });
+      const data = await r.json() as { roomId?: string; error?: string };
+      if (!data.roomId) { setRoomError(data.error ?? "Failed to create room"); return; }
+      setRoomId(data.roomId);
+      setMyRole("A");
+      setMessages([]);
+      lastTsRef.current = 0;
+      startPolling(data.roomId);
+    } catch {
+      setRoomError("Network error — check your connection");
+    }
+  }
+
+  // ── Join room ──────────────────────────────────────────────────────────────
+  async function handleJoin() {
+    const code = joinInput.trim().toUpperCase();
+    if (!code) return;
+    setRoomError("");
+    try {
+      const r = await fetch(`${getApiBase()}/rooms/${code}`);
+      if (!r.ok) { setRoomError("Room not found — check the code"); return; }
+      setRoomId(code);
+      setMyRole("B");
+      setMessages([]);
+      lastTsRef.current = 0;
+      startPolling(code);
+    } catch {
+      setRoomError("Network error — check your connection");
+    }
+  }
+
+  // ── Leave room ─────────────────────────────────────────────────────────────
+  function handleLeave() {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = null;
+    recognizerRef.current?.stop();
+    recognizerRef.current = null;
+    setRoomId(null);
+    setMyRole(null);
+    setMessages([]);
+    lastTsRef.current = 0;
+    setSpeakStatus("idle");
+    setSpeakError("");
+    setJoinInput("");
+    setRoomError("");
+  }
+
+  // ── Push message to room ───────────────────────────────────────────────────
+  async function pushMessage(original: string, translated: string) {
+    if (!roomId || !myRole) return;
+    const translations: Record<string, string> = { [theirLang]: translated };
+    try {
+      await fetch(`${getApiBase()}/rooms/${roomId}/push`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ original, translations, senderRole: myRole }),
+      });
+    } catch { /* ignore push errors */ }
+    // Add to local messages immediately
+    const msg: TalkMessage = {
+      id: `local-${Date.now()}`,
+      timestamp: Date.now(),
+      senderRole: myRole,
+      original,
+      translated,
+    };
+    setMessages((prev) => [...prev, msg]);
+  }
+
+  // ── Translate text ─────────────────────────────────────────────────────────
+  async function translateText(text: string): Promise<string> {
+    const r = await fetch(`${getApiBase()}/translate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, toLang: theirLang }),
+    });
+    const data = await r.json() as { translated?: string; error?: string };
+    return data.translated ?? text;
+  }
+
+  // ── Speak button ───────────────────────────────────────────────────────────
+  function handleSpeak() {
+    if (speakStatus === "listening") {
+      recognizerRef.current?.stop();
+      setSpeakStatus("idle");
+      return;
+    }
+    setSpeakError("");
+    const SR = (typeof window !== "undefined")
+      ? ((window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition)
+      : null;
+
+    if (!SR) {
+      setSpeakError("Speech recognition is not supported in this browser. Use the text input below.");
+      return;
+    }
+
+    const rec = new SR() as InstanceType<typeof SpeechRecognition>;
+    rec.lang = SPEECH_LANG_MAP[myLang] ?? "en-US";
+    rec.continuous = false;
+    rec.interimResults = false;
+    recognizerRef.current = rec;
+
+    rec.onstart = () => setSpeakStatus("listening");
+    rec.onerror = (e: SpeechRecognitionErrorEvent) => {
+      setSpeakStatus("error");
+      setSpeakError(
+        e.error === "not-allowed"
+          ? "Microphone permission denied — please allow microphone access"
+          : "Could not understand — try speaking clearly or use text input"
+      );
+      setTimeout(() => setSpeakStatus("idle"), 3000);
+    };
+    rec.onresult = async (e: SpeechRecognitionEvent) => {
+      const text = e.results[0]?.[0]?.transcript?.trim() ?? "";
+      if (!text) { setSpeakStatus("idle"); return; }
+      setSpeakStatus("translating");
+      try {
+        const translated = await translateText(text);
+        await pushMessage(text, translated);
+      } catch {
+        setSpeakError("Translation failed — try again");
+      }
+      setSpeakStatus("idle");
+    };
+    rec.onend = () => {
+      if (speakStatus === "listening") setSpeakStatus("idle");
+    };
+
+    rec.start();
+  }
+
+  // ── Demo / manual send ─────────────────────────────────────────────────────
+  async function handleDemoSend() {
+    const text = demoInput.trim();
+    if (!text || !roomId) return;
+    setSpeakStatus("translating");
+    setDemoInput("");
+    try {
+      const translated = await translateText(text);
+      await pushMessage(text, translated);
+    } catch {
+      setSpeakError("Translation failed");
+    }
+    setSpeakStatus("idle");
+  }
+
+  // ── Web link ───────────────────────────────────────────────────────────────
+  function getWebLink() {
+    if (typeof window === "undefined") return "";
+    return `${window.location.origin}/api/rooms/${roomId}/web`;
+  }
+
+  // ── UI ─────────────────────────────────────────────────────────────────────
+  const paddingBottom = Math.max(insets.bottom, 16) + 80;
+
+  const myInfo    = getLangInfo(myLang);
+  const theirInfo = getLangInfo(theirLang);
+
+  return (
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" />
+
+      {/* Header */}
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 16) }]}>
+        <View>
+          <Text style={styles.headerTitle}>Translate Call</Text>
+          <Text style={styles.headerSub}>
+            {roomId
+              ? `Room ${roomId} · ${myRole === "A" ? "Host" : "Guest"}`
+              : "Talk across any language barrier, live"}
+          </Text>
+        </View>
+        {roomId && (
+          <Pressable style={styles.leaveBtn} onPress={handleLeave}>
+            <Feather name="x" size={14} color={Colors.error} />
+            <Text style={styles.leaveBtnText}>Leave</Text>
+          </Pressable>
+        )}
+      </View>
+
+      <ScrollView
+        ref={scrollRef}
+        style={styles.scroll}
+        contentContainerStyle={{ paddingBottom }}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* ── NOT in room ── */}
+        {!roomId && (
+          <>
+            {/* How to use */}
+            <Animated.View entering={FadeInDown} style={styles.howCard}>
+              <View style={styles.howHeader}>
+                <Feather name="info" size={14} color={ACCENT_A} />
+                <Text style={styles.howTitle}>How to use</Text>
+              </View>
+
+              <Text style={styles.howIntro}>
+                Have a real conversation across any language — you speak yours, they speak theirs, and you each read the other's words translated live.
+              </Text>
+
+              <View style={styles.howSteps}>
+                {[
+                  { icon: "globe" as const,         text: "Pick your language and your contact's language below" },
+                  { icon: "radio" as const,          text: "Tap Start Room → share the code (or web link) with your contact" },
+                  { icon: "smartphone" as const,     text: "They join on their device using the code, or open the web link in any browser" },
+                  { icon: "mic" as const,            text: "Both tap Speak — talk normally, read translations in real time" },
+                ].map((s, i) => (
+                  <View key={i} style={styles.howStep}>
+                    <View style={styles.howStepNum}>
+                      <Text style={styles.howStepNumText}>{i + 1}</Text>
+                    </View>
+                    <View style={styles.howStepBody}>
+                      <Feather name={s.icon} size={13} color={ACCENT_A} style={{ marginTop: 2 }} />
+                      <Text style={styles.howStepText}>{s.text}</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+
+              <View style={styles.howFallbackBox}>
+                <Feather name="wifi-off" size={13} color={Colors.accentSecondary} />
+                <Text style={styles.howFallbackText}>
+                  <Text style={{ fontWeight: "700", color: Colors.accentSecondary }}>Contact doesn't have the app? </Text>
+                  Share the web link — they see your translations live in any browser. They can't speak back, but it's great for one-sided presentations or explanations.
+                </Text>
+              </View>
+            </Animated.View>
+
+            {/* Language selectors */}
+            <View style={styles.langCard}>
+              <Text style={styles.sectionTitle}>Set your languages</Text>
+
+              <View style={styles.langRow}>
+                {/* My language */}
+                <View style={styles.langCol}>
+                  <Text style={styles.langLabel}>My Language</Text>
+                  <Pressable style={styles.langBtn} onPress={() => { setShowMyPicker(!showMyPicker); setShowTheirPicker(false); }}>
+                    <Text style={styles.langBtnFlag}>{myInfo.flag}</Text>
+                    <Text style={styles.langBtnLabel}>{myInfo.label}</Text>
+                    <Feather name={showMyPicker ? "chevron-up" : "chevron-down"} size={14} color={Colors.textSecondary} />
+                  </Pressable>
+                  {showMyPicker && (
+                    <View style={styles.picker}>
+                      <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled>
+                        {LANG_OPTIONS.map((l) => (
+                          <Pressable
+                            key={l.code}
+                            style={[styles.pickerItem, myLang === l.code && styles.pickerItemActive]}
+                            onPress={() => { setMyLang(l.code); setShowMyPicker(false); }}
+                          >
+                            <Text style={styles.pickerItemText}>{l.flag}  {l.label}</Text>
+                            {myLang === l.code && <Feather name="check" size={13} color={ACCENT_A} />}
+                          </Pressable>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  )}
+                </View>
+
+                <View style={styles.langArrow}>
+                  <Feather name="repeat" size={18} color={Colors.textTertiary} />
+                </View>
+
+                {/* Their language */}
+                <View style={styles.langCol}>
+                  <Text style={styles.langLabel}>Their Language</Text>
+                  <Pressable style={styles.langBtn} onPress={() => { setShowTheirPicker(!showTheirPicker); setShowMyPicker(false); }}>
+                    <Text style={styles.langBtnFlag}>{theirInfo.flag}</Text>
+                    <Text style={styles.langBtnLabel}>{theirInfo.label}</Text>
+                    <Feather name={showTheirPicker ? "chevron-up" : "chevron-down"} size={14} color={Colors.textSecondary} />
+                  </Pressable>
+                  {showTheirPicker && (
+                    <View style={styles.picker}>
+                      <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled>
+                        {LANG_OPTIONS.map((l) => (
+                          <Pressable
+                            key={l.code}
+                            style={[styles.pickerItem, theirLang === l.code && styles.pickerItemActive]}
+                            onPress={() => { setTheirLang(l.code); setShowTheirPicker(false); }}
+                          >
+                            <Text style={styles.pickerItemText}>{l.flag}  {l.label}</Text>
+                            {theirLang === l.code && <Feather name="check" size={13} color={ACCENT_A} />}
+                          </Pressable>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  )}
+                </View>
+              </View>
+            </View>
+
+            {/* Create / Join */}
+            <View style={styles.setupCard}>
+              {!!roomError && (
+                <View style={styles.errorBox}>
+                  <Feather name="alert-circle" size={13} color={Colors.error} />
+                  <Text style={styles.errorText}>{roomError}</Text>
+                </View>
+              )}
+
+              <Pressable style={styles.createBtn} onPress={handleCreate}>
+                <Feather name="radio" size={16} color="#000" />
+                <Text style={styles.createBtnText}>Start Room (you go first)</Text>
+              </Pressable>
+
+              <View style={styles.divider}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>or join someone's room</Text>
+                <View style={styles.dividerLine} />
+              </View>
+
+              <Text style={styles.joinLabel}>Enter the room code they shared with you:</Text>
+              <View style={styles.joinRow}>
+                <TextInput
+                  style={styles.joinInput}
+                  placeholder="e.g. B34961"
+                  placeholderTextColor={Colors.textTertiary}
+                  value={joinInput}
+                  onChangeText={(t) => setJoinInput(t.toUpperCase())}
+                  autoCapitalize="characters"
+                  maxLength={8}
+                />
+                <Pressable
+                  style={[styles.joinBtn, !joinInput.trim() && { opacity: 0.4 }]}
+                  onPress={handleJoin}
+                  disabled={!joinInput.trim()}
+                >
+                  <Text style={styles.joinBtnText}>Join</Text>
+                </Pressable>
+              </View>
+            </View>
+          </>
+        )}
+
+        {/* ── IN room ── */}
+        {roomId && (
+          <>
+            {/* Room info bar */}
+            <Animated.View entering={FadeInDown} style={styles.roomBar}>
+              <View style={styles.roomBarLeft}>
+                <View style={styles.liveDot} />
+                <Text style={styles.roomBarCode}>{roomId}</Text>
+                <Text style={styles.roomBarRole}>· {myRole === "A" ? "Host" : "Guest"}</Text>
+              </View>
+              <View style={styles.roomBarActions}>
+                <Pressable
+                  style={styles.roomBarBtn}
+                  onPress={() => {
+                    copyToClipboard(roomId);
+                    setCopiedCode(true);
+                    setTimeout(() => setCopiedCode(false), 2000);
+                  }}
+                >
+                  <Feather name={copiedCode ? "check" : "copy"} size={12} color={ACCENT_A} />
+                  <Text style={styles.roomBarBtnText}>{copiedCode ? "Copied!" : "Copy Code"}</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.roomBarBtn}
+                  onPress={() => {
+                    copyToClipboard(getWebLink());
+                    setCopiedLink(true);
+                    setTimeout(() => setCopiedLink(false), 2000);
+                  }}
+                >
+                  <Feather name={copiedLink ? "check" : "link"} size={12} color={Colors.accentSecondary} />
+                  <Text style={[styles.roomBarBtnText, { color: Colors.accentSecondary }]}>
+                    {copiedLink ? "Copied!" : "Web Link"}
+                  </Text>
+                </Pressable>
+              </View>
+            </Animated.View>
+
+            {/* Language context bar */}
+            <View style={styles.langContextBar}>
+              <View style={[styles.langBadge, { backgroundColor: ACCENT_A + "15", borderColor: ACCENT_A + "40" }]}>
+                <Text style={[styles.langBadgeText, { color: ACCENT_A }]}>{myInfo.flag} You speak {myInfo.label}</Text>
+              </View>
+              <Feather name="arrow-right" size={14} color={Colors.textTertiary} />
+              <View style={[styles.langBadge, { backgroundColor: ACCENT_B + "15", borderColor: ACCENT_B + "40" }]}>
+                <Text style={[styles.langBadgeText, { color: ACCENT_B }]}>{theirInfo.flag} They speak {theirInfo.label}</Text>
+              </View>
+            </View>
+
+            {/* Chat feed */}
+            {messages.length === 0 ? (
+              <View style={styles.emptyChat}>
+                <Feather name="message-circle" size={36} color={Colors.textTertiary} />
+                <Text style={styles.emptyChatTitle}>Ready to talk</Text>
+                <Text style={styles.emptyChatSub}>
+                  {myRole === "A"
+                    ? `Share the code ${roomId} with your contact, then tap Speak below`
+                    : "The host will start speaking — their translations will appear here"}
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.chatFeed}>
+                {messages.map((msg) => {
+                  const isMe = msg.senderRole === myRole;
+                  const accent = isMe ? ACCENT_A : ACCENT_B;
+                  const senderInfo = isMe ? myInfo : theirInfo;
+                  return (
+                    <View
+                      key={msg.id}
+                      style={[styles.msgBubble, isMe ? styles.msgBubbleRight : styles.msgBubbleLeft]}
+                    >
+                      <View style={[
+                        styles.msgInner,
+                        { backgroundColor: accent + "12", borderColor: accent + "35" },
+                        isMe ? styles.msgInnerRight : styles.msgInnerLeft,
+                      ]}>
+                        <Text style={[styles.msgSender, { color: accent }]}>
+                          {senderInfo.flag}  {isMe ? "You" : "Them"}
+                        </Text>
+
+                        {isMe ? (
+                          <>
+                            <Text style={styles.msgOriginal}>{msg.original}</Text>
+                            <View style={styles.msgTranslateRow}>
+                              <Feather name="arrow-right" size={11} color={Colors.textTertiary} />
+                              <Text style={styles.msgTranslated}>{theirInfo.flag} {msg.translated}</Text>
+                            </View>
+                          </>
+                        ) : (
+                          <>
+                            <Text style={styles.msgTranslated}>{msg.translated}</Text>
+                            <Text style={styles.msgOriginal}>{msg.original}</Text>
+                          </>
+                        )}
+
+                        <Text style={styles.msgTime}>
+                          {new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        </Text>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+
+            {/* Speak button */}
+            <View style={styles.speakSection}>
+              {!!speakError && (
+                <View style={styles.errorBox}>
+                  <Feather name="alert-circle" size={13} color={Colors.error} />
+                  <Text style={styles.errorText}>{speakError}</Text>
+                </View>
+              )}
+
+              <Pressable
+                style={[
+                  styles.speakBtn,
+                  speakStatus === "listening" && styles.speakBtnActive,
+                  speakStatus === "translating" && styles.speakBtnTranslating,
+                ]}
+                onPress={handleSpeak}
+                disabled={speakStatus === "translating"}
+              >
+                {speakStatus === "translating" ? (
+                  <>
+                    <ActivityIndicator size="small" color="#000" />
+                    <Text style={styles.speakBtnLabel}>Translating…</Text>
+                  </>
+                ) : speakStatus === "listening" ? (
+                  <>
+                    <Feather name="square" size={18} color="#000" />
+                    <Text style={styles.speakBtnLabel}>Stop Listening</Text>
+                  </>
+                ) : (
+                  <>
+                    <Feather name="mic" size={18} color="#000" />
+                    <Text style={styles.speakBtnLabel}>
+                      Speak in {myInfo.label}
+                    </Text>
+                  </>
+                )}
+              </Pressable>
+
+              <Text style={styles.speakHint}>
+                Speak naturally — we'll translate to {theirInfo.label} and send it live
+              </Text>
+            </View>
+
+            {/* Demo / text fallback */}
+            <View style={styles.demoSection}>
+              <Text style={styles.demoLabel}>No microphone? Type instead:</Text>
+              <View style={styles.demoRow}>
+                <TextInput
+                  style={styles.demoInput}
+                  placeholder={`Type in ${myInfo.label}…`}
+                  placeholderTextColor={Colors.textTertiary}
+                  value={demoInput}
+                  onChangeText={setDemoInput}
+                  returnKeyType="send"
+                  onSubmitEditing={handleDemoSend}
+                />
+                <Pressable
+                  style={[styles.demoSendBtn, !demoInput.trim() && { opacity: 0.4 }]}
+                  onPress={handleDemoSend}
+                  disabled={!demoInput.trim() || speakStatus === "translating"}
+                >
+                  <Feather name="send" size={15} color="#000" />
+                </Pressable>
+              </View>
+            </View>
+          </>
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
+// ── Styles ───────────────────────────────────────────────────────────────────
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: Colors.background },
+
+  header: {
+    paddingHorizontal: 20,
+    paddingBottom: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.cardBorder,
+  },
+  headerTitle: { fontSize: 22, fontWeight: "700", color: Colors.text },
+  headerSub:   { fontSize: 12, color: Colors.textSecondary, marginTop: 2 },
+  leaveBtn: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    backgroundColor: Colors.error + "15",
+    borderWidth: 1, borderColor: Colors.error + "40",
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20,
+  },
+  leaveBtnText: { fontSize: 13, fontWeight: "600", color: Colors.error },
+
+  scroll: { flex: 1 },
+
+  // ── How to use ─────────────────────────────────────────────────────────────
+  howCard: {
+    margin: 16,
+    backgroundColor: ACCENT_A + "0C",
+    borderWidth: 1,
+    borderColor: ACCENT_A + "30",
+    borderRadius: 16,
+    padding: 16,
+    gap: 14,
+  },
+  howHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
+  howTitle:  { fontSize: 14, fontWeight: "700", color: Colors.text },
+  howIntro:  { fontSize: 13, color: Colors.textSecondary, lineHeight: 20 },
+  howSteps:  { gap: 10 },
+  howStep:   { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  howStepNum: {
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: ACCENT_A + "22",
+    alignItems: "center", justifyContent: "center",
+    flexShrink: 0, marginTop: 1,
+  },
+  howStepNumText: { fontSize: 11, fontWeight: "700", color: ACCENT_A },
+  howStepBody: { flex: 1, flexDirection: "row", alignItems: "flex-start", gap: 8 },
+  howStepText: { flex: 1, fontSize: 13, color: Colors.text, lineHeight: 20 },
+  howFallbackBox: {
+    flexDirection: "row", alignItems: "flex-start", gap: 8,
+    backgroundColor: Colors.accentSecondary + "0C",
+    borderWidth: 1, borderColor: Colors.accentSecondary + "25",
+    borderRadius: 10, padding: 10,
+  },
+  howFallbackText: { flex: 1, fontSize: 12, color: Colors.textSecondary, lineHeight: 18 },
+
+  // ── Language card ──────────────────────────────────────────────────────────
+  langCard: {
+    marginHorizontal: 16,
+    backgroundColor: Colors.card,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    borderRadius: 16,
+    padding: 16,
+    gap: 14,
+  },
+  sectionTitle: { fontSize: 13, fontWeight: "700", color: Colors.textSecondary, textTransform: "uppercase", letterSpacing: 0.5 },
+  langRow:    { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+  langCol:    { flex: 1, gap: 6 },
+  langLabel:  { fontSize: 11, color: Colors.textSecondary, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.4 },
+  langArrow:  { paddingTop: 30, alignItems: "center", justifyContent: "center", width: 30 },
+  langBtn: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    backgroundColor: Colors.background,
+    borderWidth: 1, borderColor: Colors.cardBorder,
+    borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8,
+  },
+  langBtnFlag:  { fontSize: 18 },
+  langBtnLabel: { flex: 1, fontSize: 13, color: Colors.text, fontWeight: "600" },
+  picker: {
+    position: "absolute",
+    top: 70, left: 0, right: 0, zIndex: 99,
+    backgroundColor: Colors.card,
+    borderWidth: 1, borderColor: Colors.cardBorder,
+    borderRadius: 10,
+    overflow: "hidden",
+    shadowColor: "#000", shadowOpacity: 0.4, shadowRadius: 12, shadowOffset: { width: 0, height: 4 },
+    elevation: 10,
+  },
+  pickerItem: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 14, paddingVertical: 10,
+    borderBottomWidth: 1, borderBottomColor: Colors.cardBorder,
+  },
+  pickerItemActive: { backgroundColor: ACCENT_A + "12" },
+  pickerItemText:   { fontSize: 13, color: Colors.text },
+
+  // ── Setup card ─────────────────────────────────────────────────────────────
+  setupCard: {
+    margin: 16,
+    backgroundColor: Colors.card,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    borderRadius: 16,
+    padding: 16,
+    gap: 14,
+  },
+  createBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    backgroundColor: ACCENT_A,
+    borderRadius: 12, paddingVertical: 14,
+  },
+  createBtnText: { fontSize: 15, fontWeight: "700", color: "#000" },
+  divider: { flexDirection: "row", alignItems: "center", gap: 10 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: Colors.cardBorder },
+  dividerText: { fontSize: 12, color: Colors.textTertiary },
+  joinLabel: { fontSize: 12, color: Colors.textSecondary },
+  joinRow:   { flexDirection: "row", gap: 8 },
+  joinInput: {
+    flex: 1,
+    backgroundColor: Colors.background,
+    borderWidth: 1, borderColor: Colors.cardBorder,
+    borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10,
+    fontSize: 16, color: Colors.text, fontFamily: "monospace", letterSpacing: 2,
+  },
+  joinBtn: {
+    backgroundColor: ACCENT_B,
+    borderRadius: 10, paddingHorizontal: 18, paddingVertical: 10,
+    alignItems: "center", justifyContent: "center",
+  },
+  joinBtnText: { fontSize: 14, fontWeight: "700", color: "#fff" },
+
+  errorBox: {
+    flexDirection: "row", alignItems: "flex-start", gap: 8,
+    backgroundColor: Colors.error + "12",
+    borderWidth: 1, borderColor: Colors.error + "30",
+    borderRadius: 10, padding: 10,
+  },
+  errorText: { flex: 1, fontSize: 12, color: Colors.error, lineHeight: 18 },
+
+  // ── Room bar ───────────────────────────────────────────────────────────────
+  roomBar: {
+    marginHorizontal: 16, marginTop: 16,
+    backgroundColor: Colors.card,
+    borderWidth: 1, borderColor: Colors.cardBorder,
+    borderRadius: 14, padding: 12,
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+  },
+  roomBarLeft:    { flexDirection: "row", alignItems: "center", gap: 8 },
+  roomBarActions: { flexDirection: "row", gap: 8 },
+  liveDot: {
+    width: 8, height: 8, borderRadius: 4, backgroundColor: "#22C55E",
+    shadowColor: "#22C55E", shadowOpacity: 0.8, shadowRadius: 4, shadowOffset: { width: 0, height: 0 },
+  },
+  roomBarCode: { fontSize: 15, fontWeight: "700", color: Colors.text, fontFamily: "monospace", letterSpacing: 1 },
+  roomBarRole: { fontSize: 12, color: Colors.textTertiary },
+  roomBarBtn: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    backgroundColor: Colors.background,
+    borderWidth: 1, borderColor: Colors.cardBorder,
+    borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4,
+  },
+  roomBarBtnText: { fontSize: 11, fontWeight: "600", color: ACCENT_A },
+
+  // ── Language context bar ───────────────────────────────────────────────────
+  langContextBar: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 8, marginHorizontal: 16, marginTop: 10,
+  },
+  langBadge: {
+    flexDirection: "row", alignItems: "center",
+    borderWidth: 1, borderRadius: 20,
+    paddingHorizontal: 10, paddingVertical: 4,
+  },
+  langBadgeText: { fontSize: 12, fontWeight: "600" },
+
+  // ── Empty chat ─────────────────────────────────────────────────────────────
+  emptyChat: {
+    alignItems: "center", padding: 40, gap: 10,
+    marginHorizontal: 16, marginTop: 10,
+    backgroundColor: Colors.card,
+    borderWidth: 1, borderColor: Colors.cardBorder,
+    borderRadius: 16,
+  },
+  emptyChatTitle: { fontSize: 16, fontWeight: "700", color: Colors.text },
+  emptyChatSub:   { fontSize: 13, color: Colors.textSecondary, textAlign: "center", lineHeight: 20 },
+
+  // ── Chat feed ──────────────────────────────────────────────────────────────
+  chatFeed: { paddingHorizontal: 16, paddingTop: 14, gap: 10 },
+  msgBubble: { width: "100%" },
+  msgBubbleLeft:  { alignItems: "flex-start" },
+  msgBubbleRight: { alignItems: "flex-end" },
+  msgInner: {
+    maxWidth: "82%",
+    borderWidth: 1, borderRadius: 14,
+    padding: 12, gap: 4,
+  },
+  msgInnerLeft:  { borderBottomLeftRadius: 4 },
+  msgInnerRight: { borderBottomRightRadius: 4 },
+  msgSender:       { fontSize: 11, fontWeight: "700", marginBottom: 2 },
+  msgOriginal:     { fontSize: 12, color: Colors.textTertiary, fontStyle: "italic" },
+  msgTranslated:   { fontSize: 16, color: Colors.text, lineHeight: 22, fontWeight: "500" },
+  msgTranslateRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+  msgTime:         { fontSize: 10, color: Colors.textTertiary, marginTop: 4, alignSelf: "flex-end" },
+
+  // ── Speak section ──────────────────────────────────────────────────────────
+  speakSection: { marginHorizontal: 16, marginTop: 16, gap: 10 },
+  speakBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10,
+    backgroundColor: ACCENT_A,
+    borderRadius: 14, paddingVertical: 16,
+  },
+  speakBtnActive:      { backgroundColor: "#22C55E" },
+  speakBtnTranslating: { backgroundColor: Colors.accentSecondary },
+  speakBtnLabel: { fontSize: 16, fontWeight: "700", color: "#000" },
+  speakHint: { fontSize: 12, color: Colors.textTertiary, textAlign: "center" },
+
+  // ── Demo / text input ──────────────────────────────────────────────────────
+  demoSection: {
+    marginHorizontal: 16, marginTop: 8,
+    backgroundColor: Colors.card,
+    borderWidth: 1, borderColor: Colors.cardBorder,
+    borderRadius: 14, padding: 12, gap: 8,
+  },
+  demoLabel: { fontSize: 12, color: Colors.textSecondary },
+  demoRow:   { flexDirection: "row", gap: 8 },
+  demoInput: {
+    flex: 1,
+    backgroundColor: Colors.background,
+    borderWidth: 1, borderColor: Colors.cardBorder,
+    borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8,
+    fontSize: 14, color: Colors.text,
+  },
+  demoSendBtn: {
+    width: 42, height: 42,
+    backgroundColor: ACCENT_A,
+    borderRadius: 10, alignItems: "center", justifyContent: "center",
+  },
+});
