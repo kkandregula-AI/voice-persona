@@ -1695,6 +1695,8 @@ export default function TravelTalkScreen() {
               returnKeyType="send"
               multiline={false}
               editable={!typeLoading}
+              // @ts-ignore – web-only: hints Gboard/Chrome to offer the right keyboard
+              lang={myLang.code.split("-")[0]}
             />
             <Pressable
               style={[styles.typeBtn, (!typeInput.trim() || typeLoading) && { opacity: 0.4 }]}
@@ -1704,6 +1706,16 @@ export default function TravelTalkScreen() {
               <Feather name={typeLoading ? "loader" : "send"} size={16} color="#fff" />
             </Pressable>
           </View>
+          {myLang.code !== "en-US" && (
+            <View style={styles.keyboardHintRow}>
+              <Feather name="info" size={11} color={Colors.textTertiary} />
+              <Text style={styles.keyboardHintText}>
+                Switch your device keyboard to <Text style={{ color: Colors.textSecondary }}>{myLang.label}</Text> to type natively.
+                {" "}On Android, Gboard may switch automatically.
+                {" "}On iPhone, use the 🌐 globe key on your keyboard.
+              </Text>
+            </View>
+          )}
           {!!typeTranslation && (
             <Animated.View entering={FadeInDown} style={styles.typeResult}>
               <View style={styles.typeResultHeader}>
@@ -2216,6 +2228,19 @@ const styles = StyleSheet.create({
     backgroundColor: ACCENT_TRAVEL,
     alignItems: "center",
     justifyContent: "center",
+  },
+  keyboardHintRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+    marginTop: 6,
+    paddingHorizontal: 2,
+  },
+  keyboardHintText: {
+    flex: 1,
+    fontSize: 11.5,
+    color: Colors.textTertiary,
+    lineHeight: 16,
   },
   typeResult: {
     marginTop: 12,
