@@ -123,6 +123,7 @@ export default function TalkScreen() {
   const [messages, setMessages]     = useState<TalkMessage[]>([]);
   const [speakStatus, setSpeakStatus] = useState<SpeakStatus>("idle");
   const [speakError, setSpeakError]   = useState("");
+  const [capturedText, setCapturedText] = useState(""); // what speech recognition heard
   const [demoInput, setDemoInput]     = useState("");
   const [copiedCode, setCopiedCode]   = useState(false);
   const [copiedLink, setCopiedLink]   = useState(false);
@@ -132,11 +133,14 @@ export default function TalkScreen() {
   const lastTsRef    = useRef(0);
   const myRoleRef    = useRef<"A" | "B" | null>(null);
   const roomIdRef    = useRef<string | null>(null);
+  const speakStatusRef = useRef<SpeakStatus>("idle"); // avoids stale closure in onend
   const recognizerRef = useRef<InstanceType<typeof SpeechRecognition> | null>(null);
 
   // keep refs in sync with state
   useEffect(() => { myRoleRef.current = myRole; }, [myRole]);
   useEffect(() => { roomIdRef.current = roomId; }, [roomId]);
+
+  const setSpeak = (s: SpeakStatus) => { speakStatusRef.current = s; setSpeakStatus(s); };
 
   // ── Polling ────────────────────────────────────────────────────────────────
   const startPolling = useCallback((id: string) => {
@@ -287,12 +291,18 @@ export default function TalkScreen() {
 
   // ── Speak button ───────────────────────────────────────────────────────────
   function handleSpeak() {
-    if (speakStatus === "listening") {
+    // Stop if already listening
+    if (speakStatusRef.current === "listening") {
       recognizerRef.current?.stop();
-      setSpeakStatus("idle");
+      setSpeak("idle");
       return;
     }
+    // Ignore taps while a translation/send is in progress
+    if (speakStatusRef.current === "translating") return;
+
     setSpeakError("");
+    setCapturedText("");
+
     const SR = (typeof window !== "undefined")
       ? ((window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition)
       : null;
@@ -308,26 +318,41 @@ export default function TalkScreen() {
     rec.interimResults = false;
     recognizerRef.current = rec;
 
-    rec.onstart = () => setSpeakStatus("listening");
+    rec.onstart = () => setSpeak("listening");
+
     rec.onerror = (e: SpeechRecognitionErrorEvent) => {
-      setSpeakStatus("error");
+      setSpeak("error");
       setSpeakError(
         e.error === "not-allowed"
           ? "Microphone permission denied — please allow microphone access"
-          : "Could not understand — try speaking clearly or use text input"
+          : e.error === "no-speech"
+          ? "No speech detected — tap the mic and speak clearly"
+          : "Speech recognition failed — try again or use text input"
       );
-      setTimeout(() => setSpeakStatus("idle"), 3000);
+      setTimeout(() => setSpeak("idle"), 3000);
     };
+
     rec.onresult = async (e: SpeechRecognitionEvent) => {
       const text = e.results[0]?.[0]?.transcript?.trim() ?? "";
-      if (!text) { setSpeakStatus("idle"); return; }
-      setSpeakStatus("translating");
+      if (!text) {
+        setSpeakError("No speech captured — please try again");
+        setSpeak("idle");
+        return;
+      }
+      setCapturedText(text); // show what was heard
+      setSpeak("translating");
       const translated = await translateText(text); // never throws; falls back to original
       await pushMessage(text, translated);
-      setSpeakStatus("idle");
+      setCapturedText(""); // clear after send
+      setSpeak("idle");
     };
+
+    // Use ref so onend always sees the CURRENT status (not stale closure value)
     rec.onend = () => {
-      if (speakStatus === "listening") setSpeakStatus("idle");
+      if (speakStatusRef.current === "listening") {
+        setSpeakError("No speech detected — tap the mic and speak clearly");
+        setSpeak("idle");
+      }
     };
 
     rec.start();
@@ -651,6 +676,13 @@ export default function TalkScreen() {
                 </View>
               )}
 
+              {!!capturedText && (
+                <View style={styles.capturedBox}>
+                  <Feather name="mic" size={12} color={ACCENT_A} />
+                  <Text style={styles.capturedText} numberOfLines={2}>"{capturedText}"</Text>
+                </View>
+              )}
+
               <Pressable
                 style={[
                   styles.speakBtn,
@@ -663,12 +695,12 @@ export default function TalkScreen() {
                 {speakStatus === "translating" ? (
                   <>
                     <ActivityIndicator size="small" color="#000" />
-                    <Text style={styles.speakBtnLabel}>Translating…</Text>
+                    <Text style={styles.speakBtnLabel}>Translating & Sending…</Text>
                   </>
                 ) : speakStatus === "listening" ? (
                   <>
                     <Feather name="square" size={18} color="#000" />
-                    <Text style={styles.speakBtnLabel}>Stop Listening</Text>
+                    <Text style={styles.speakBtnLabel}>Stop (tap when done speaking)</Text>
                   </>
                 ) : (
                   <>
@@ -681,7 +713,7 @@ export default function TalkScreen() {
               </Pressable>
 
               <Text style={styles.speakHint}>
-                Speak naturally — we'll translate to {theirInfo.label} and send it live
+                Tap to start, speak, then tap Stop — we'll translate to {theirInfo.label} and send live
               </Text>
             </View>
 
@@ -854,6 +886,14 @@ const styles = StyleSheet.create({
     borderRadius: 10, padding: 10,
   },
   errorText: { flex: 1, fontSize: 12, color: Colors.error, lineHeight: 18 },
+
+  capturedBox: {
+    flexDirection: "row", alignItems: "flex-start", gap: 8,
+    backgroundColor: ACCENT_A + "10",
+    borderWidth: 1, borderColor: ACCENT_A + "30",
+    borderRadius: 10, padding: 10, marginBottom: 8,
+  },
+  capturedText: { flex: 1, fontSize: 12, color: ACCENT_A, lineHeight: 18, fontStyle: "italic" },
 
   // ── Room bar ───────────────────────────────────────────────────────────────
   roomBar: {
