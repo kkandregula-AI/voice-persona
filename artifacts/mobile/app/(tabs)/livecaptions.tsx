@@ -1303,14 +1303,26 @@ export default function LiveCaptionsTab() {
           {/* Manual input */}
           <TextInput
             style={styles.demoInput}
-            placeholder="Type text in any language…"
+            placeholder={`Type in ${LANG_LABELS[demoLang] ?? demoLang}…`}
             placeholderTextColor={Colors.textTertiary}
             value={demoText}
             onChangeText={setDemoText}
             multiline
             numberOfLines={3}
             textAlignVertical="top"
+            // @ts-ignore – web-only: hints Gboard/Chrome to offer the right keyboard
+            lang={demoLang}
           />
+          {demoLang !== "en" && (
+            <View style={styles.keyboardHintRow}>
+              <Feather name="info" size={11} color={Colors.textTertiary} />
+              <Text style={styles.keyboardHintText}>
+                Switch your device keyboard to <Text style={{ color: Colors.textSecondary }}>{LANG_LABELS[demoLang] ?? demoLang}</Text> to type natively.
+                {" "}On Android, Gboard may switch automatically.
+                {" "}On iPhone, use the 🌐 globe key.
+              </Text>
+            </View>
+          )}
 
           <Pressable
             style={[styles.translateBtn, (!demoText.trim() || demoLoading) && { opacity: 0.4 }]}
@@ -1942,6 +1954,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     minHeight: 72,
     lineHeight: 20,
+  },
+  keyboardHintRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+    marginTop: 6,
+    paddingHorizontal: 2,
+  },
+  keyboardHintText: {
+    flex: 1,
+    fontSize: 11.5,
+    color: Colors.textTertiary,
+    lineHeight: 16,
   },
   demoLangRow: { gap: 8 },
   demoLangLabel: {

@@ -830,6 +830,8 @@ export default function TalkScreen() {
                   onChangeText={setDemoInput}
                   returnKeyType="send"
                   onSubmitEditing={handleDemoSend}
+                  // @ts-ignore – web-only: hints Gboard/Chrome to offer the right keyboard
+                  lang={myInfo.code}
                 />
                 <Pressable
                   style={[styles.demoSendBtn, !demoInput.trim() && { opacity: 0.4 }]}
@@ -839,6 +841,16 @@ export default function TalkScreen() {
                   <Feather name="send" size={15} color="#000" />
                 </Pressable>
               </View>
+              {myLang !== "en" && (
+                <View style={styles.keyboardHintRow}>
+                  <Feather name="info" size={11} color={Colors.textTertiary} />
+                  <Text style={styles.keyboardHintText}>
+                    Switch your device keyboard to <Text style={{ color: Colors.textSecondary }}>{myInfo.label}</Text> to type natively.
+                    {" "}On Android, Gboard may switch automatically.
+                    {" "}On iPhone, use the 🌐 globe key.
+                  </Text>
+                </View>
+              )}
             </View>
           </>
         )}
@@ -1107,5 +1119,18 @@ const styles = StyleSheet.create({
     width: 42, height: 42,
     backgroundColor: ACCENT_A,
     borderRadius: 10, alignItems: "center", justifyContent: "center",
+  },
+  keyboardHintRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+    marginTop: 6,
+    paddingHorizontal: 2,
+  },
+  keyboardHintText: {
+    flex: 1,
+    fontSize: 11.5,
+    color: Colors.textTertiary,
+    lineHeight: 16,
   },
 });
