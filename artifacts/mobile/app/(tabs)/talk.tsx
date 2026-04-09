@@ -69,6 +69,39 @@ function getLangInfo(code: string) {
   return LANG_OPTIONS.find((l) => l.code === code) ?? { code, label: code, flag: "🌐" };
 }
 
+// ── Script mismatch detection ────────────────────────────────────────────────
+const SCRIPT_RANGES: Record<string, { re: RegExp; name: string }> = {
+  te: { re: /[\u0C00-\u0C7F]/, name: "Telugu" },
+  hi: { re: /[\u0900-\u097F]/, name: "Hindi" },
+  mr: { re: /[\u0900-\u097F]/, name: "Marathi" },
+  ta: { re: /[\u0B80-\u0BFF]/, name: "Tamil" },
+  kn: { re: /[\u0C80-\u0CFF]/, name: "Kannada" },
+  ml: { re: /[\u0D00-\u0D7F]/, name: "Malayalam" },
+  bn: { re: /[\u0980-\u09FF]/, name: "Bengali" },
+  gu: { re: /[\u0A80-\u0AFF]/, name: "Gujarati" },
+  pa: { re: /[\u0A00-\u0A7F]/, name: "Punjabi" },
+  ar: { re: /[\u0600-\u06FF]/, name: "Arabic" },
+  ur: { re: /[\u0600-\u06FF]/, name: "Urdu" },
+  zh: { re: /[\u4E00-\u9FFF]/, name: "Chinese" },
+  ja: { re: /[\u3040-\u30FF]/, name: "Japanese" },
+  ko: { re: /[\uAC00-\uD7AF]/, name: "Korean" },
+  ru: { re: /[\u0400-\u04FF]/, name: "Russian" },
+  uk: { re: /[\u0400-\u04FF]/, name: "Ukrainian" },
+  th: { re: /[\u0E00-\u0E7F]/, name: "Thai" },
+  he: { re: /[\u0590-\u05FF]/, name: "Hebrew" },
+};
+function checkScriptMismatch(text: string, langCode: string): string | null {
+  if (!text.trim()) return null;
+  const base = langCode.split("-")[0]!.toLowerCase();
+  const s = SCRIPT_RANGES[base];
+  if (!s) return null;
+  if (s.re.test(text)) return null;
+  return `Looks like you ${typeof window !== "undefined" ? "spoke" : "typed"} in a different script — translating anyway. For best results, use ${s.name} script.`;
+}
+function isNonLatin(langCode: string): boolean {
+  return langCode.split("-")[0]!.toLowerCase() in SCRIPT_RANGES;
+}
+
 // ── Language picker modal (bottom sheet) ──────────────────────────────────────
 function LangPickerModal({
   visible,
@@ -216,6 +249,8 @@ export default function TalkScreen() {
   const [speakError, setSpeakError]   = useState("");
   const [capturedText, setCapturedText] = useState(""); // what speech recognition heard
   const [demoInput, setDemoInput]     = useState("");
+  const [langWarning, setLangWarning] = useState("");
+  const langWarnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [copiedCode, setCopiedCode]   = useState(false);
   const [copiedLink, setCopiedLink]   = useState(false);
 
@@ -235,6 +270,12 @@ export default function TalkScreen() {
   useEffect(() => { messagesRef.current = messages; }, [messages]);
 
   const setSpeak = (s: SpeakStatus) => { speakStatusRef.current = s; setSpeakStatus(s); };
+
+  function showLangWarning(msg: string) {
+    setLangWarning(msg);
+    if (langWarnTimerRef.current) clearTimeout(langWarnTimerRef.current);
+    langWarnTimerRef.current = setTimeout(() => setLangWarning(""), 7000);
+  }
 
   // ── Save & download conversation ───────────────────────────────────────────
   function buildTranscript(msgs: TalkMessage[], rid: string, role: "A" | "B" | null): string {
@@ -522,6 +563,9 @@ export default function TalkScreen() {
         return;
       }
       setCapturedText(text); // show what was heard
+      // Check if spoken text matches the expected script
+      const warning = checkScriptMismatch(text, myLang);
+      if (warning) showLangWarning(warning);
       setSpeak("translating");
       const translated = await translateText(text); // never throws; falls back to original
       await pushMessage(text, translated);
@@ -544,6 +588,9 @@ export default function TalkScreen() {
   async function handleDemoSend() {
     const text = demoInput.trim();
     if (!text || !roomId) return;
+    // Check script mismatch before sending
+    const warning = checkScriptMismatch(text, myLang);
+    if (warning) showLangWarning(warning);
     setSpeakStatus("translating");
     setDemoInput("");
     try {
@@ -852,6 +899,13 @@ export default function TalkScreen() {
                 </View>
               )}
 
+              {!!langWarning && (
+                <View style={styles.langWarnBox}>
+                  <Feather name="alert-triangle" size={13} color="#F59E0B" />
+                  <Text style={styles.langWarnText}>{langWarning}</Text>
+                </View>
+              )}
+
               {!!capturedText && (
                 <View style={styles.capturedBox}>
                   <Feather name="mic" size={12} color={ACCENT_A} />
@@ -889,8 +943,16 @@ export default function TalkScreen() {
               </Pressable>
 
               <Text style={styles.speakHint}>
-                Tap to start, speak, then tap Stop — we'll translate to {theirInfo.label} and send live
+                Tap to start, speak in <Text style={{ fontWeight: "700", color: Colors.text }}>{myInfo.label}</Text>, then tap Stop — we'll translate to {theirInfo.label} and send live
               </Text>
+              {isNonLatin(myLang) && (
+                <View style={styles.langHintRow}>
+                  <Feather name="info" size={11} color={Colors.textTertiary} />
+                  <Text style={styles.langHintText}>
+                    For best recognition, speak clearly in <Text style={{ color: Colors.textSecondary }}>{myInfo.label}</Text> script. If you speak in English or another language, the app will still translate — but accuracy may vary.
+                  </Text>
+                </View>
+              )}
             </View>
 
             {/* Demo / text fallback */}
@@ -1186,6 +1248,36 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
   },
   keyboardHintText: {
+    flex: 1,
+    fontSize: 11.5,
+    color: Colors.textTertiary,
+    lineHeight: 16,
+  },
+  langWarnBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    backgroundColor: "#F59E0B18",
+    borderWidth: 1,
+    borderColor: "#F59E0B44",
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 8,
+  },
+  langWarnText: {
+    flex: 1,
+    fontSize: 12,
+    color: "#F59E0B",
+    lineHeight: 17,
+  },
+  langHintRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+    marginTop: 8,
+    paddingHorizontal: 2,
+  },
+  langHintText: {
     flex: 1,
     fontSize: 11.5,
     color: Colors.textTertiary,

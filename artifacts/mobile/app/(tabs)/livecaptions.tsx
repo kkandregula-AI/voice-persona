@@ -74,6 +74,35 @@ const SPEECH_LANG_MAP: Record<string, string> = {
   id: "id-ID", ms: "ms-MY", tl: "fil-PH",
 };
 
+// ── Script mismatch detection ────────────────────────────────────────────────
+const LC_SCRIPT_RANGES: Record<string, { re: RegExp; name: string }> = {
+  te: { re: /[\u0C00-\u0C7F]/, name: "Telugu" },
+  hi: { re: /[\u0900-\u097F]/, name: "Hindi" },
+  mr: { re: /[\u0900-\u097F]/, name: "Marathi" },
+  ta: { re: /[\u0B80-\u0BFF]/, name: "Tamil" },
+  kn: { re: /[\u0C80-\u0CFF]/, name: "Kannada" },
+  ml: { re: /[\u0D00-\u0D7F]/, name: "Malayalam" },
+  bn: { re: /[\u0980-\u09FF]/, name: "Bengali" },
+  gu: { re: /[\u0A80-\u0AFF]/, name: "Gujarati" },
+  pa: { re: /[\u0A00-\u0A7F]/, name: "Punjabi" },
+  ar: { re: /[\u0600-\u06FF]/, name: "Arabic" },
+  ur: { re: /[\u0600-\u06FF]/, name: "Urdu" },
+  zh: { re: /[\u4E00-\u9FFF]/, name: "Chinese" },
+  ja: { re: /[\u3040-\u30FF]/, name: "Japanese" },
+  ko: { re: /[\uAC00-\uD7AF]/, name: "Korean" },
+  ru: { re: /[\u0400-\u04FF]/, name: "Russian" },
+  th: { re: /[\u0E00-\u0E7F]/, name: "Thai" },
+  he: { re: /[\u0590-\u05FF]/, name: "Hebrew" },
+};
+function lcCheckScriptMismatch(text: string, langCode: string): string | null {
+  if (!text.trim()) return null;
+  const base = langCode.split("-")[0]!.toLowerCase();
+  const s = LC_SCRIPT_RANGES[base];
+  if (!s) return null;
+  if (s.re.test(text)) return null;
+  return `Looks like the text is not in ${s.name} script — translating anyway. For best accuracy, try typing in ${s.name}.`;
+}
+
 function getApiBase(): string {
   if (Platform.OS === "web" && typeof window !== "undefined") {
     return `${window.location.origin}/api`;
@@ -280,6 +309,8 @@ export default function LiveCaptionsTab() {
   const [demoText, setDemoText] = useState<string>("");
   const [demoLang, setDemoLang] = useState<string>("hi");
   const [demoLoading, setDemoLoading] = useState<boolean>(false);
+  const [langWarning, setLangWarning] = useState<string>("");
+  const langWarnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // History
   const [history, setHistory] = useState<CaptionEntry[]>([]);
@@ -628,8 +659,17 @@ export default function LiveCaptionsTab() {
 
   // ── Demo mode ──
 
+  function showLangWarning(msg: string) {
+    setLangWarning(msg);
+    if (langWarnTimerRef.current) clearTimeout(langWarnTimerRef.current);
+    langWarnTimerRef.current = setTimeout(() => setLangWarning(""), 7000);
+  }
+
   const handleDemoTranslate = useCallback(async () => {
     if (!demoText.trim()) return;
+    // Check if typed text matches the selected language's script
+    const warning = lcCheckScriptMismatch(demoText.trim(), demoLang);
+    if (warning) setLangWarning(warning);
     setDemoLoading(true);
     setErrorMsg("");
     setTranslationsByLang({});
@@ -1324,6 +1364,13 @@ export default function LiveCaptionsTab() {
             </View>
           )}
 
+          {!!langWarning && (
+            <Animated.View entering={FadeInUp} style={styles.langWarnBox}>
+              <Feather name="alert-triangle" size={13} color="#F59E0B" />
+              <Text style={styles.langWarnText}>{langWarning}</Text>
+            </Animated.View>
+          )}
+
           <Pressable
             style={[styles.translateBtn, (!demoText.trim() || demoLoading) && { opacity: 0.4 }]}
             onPress={handleDemoTranslate}
@@ -1967,6 +2014,24 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     color: Colors.textTertiary,
     lineHeight: 16,
+  },
+  langWarnBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    backgroundColor: "#F59E0B18",
+    borderWidth: 1,
+    borderColor: "#F59E0B44",
+    borderRadius: 10,
+    padding: 10,
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  langWarnText: {
+    flex: 1,
+    fontSize: 12,
+    color: "#F59E0B",
+    lineHeight: 17,
   },
   demoLangRow: { gap: 8 },
   demoLangLabel: {

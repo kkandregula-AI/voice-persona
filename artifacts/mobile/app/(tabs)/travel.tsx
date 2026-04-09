@@ -108,6 +108,39 @@ const LANGUAGES: Language[] = [
   { code: "sa-IN", label: "Sanskrit",    flag: "🇮🇳", name: "Sanskrit"    },
 ];
 
+// ── Script mismatch detection ────────────────────────────────────────────────
+const TT_SCRIPT_RANGES: Record<string, { re: RegExp; name: string }> = {
+  te: { re: /[\u0C00-\u0C7F]/, name: "Telugu" },
+  hi: { re: /[\u0900-\u097F]/, name: "Hindi" },
+  mr: { re: /[\u0900-\u097F]/, name: "Marathi" },
+  ta: { re: /[\u0B80-\u0BFF]/, name: "Tamil" },
+  kn: { re: /[\u0C80-\u0CFF]/, name: "Kannada" },
+  ml: { re: /[\u0D00-\u0D7F]/, name: "Malayalam" },
+  bn: { re: /[\u0980-\u09FF]/, name: "Bengali" },
+  gu: { re: /[\u0A80-\u0AFF]/, name: "Gujarati" },
+  pa: { re: /[\u0A00-\u0A7F]/, name: "Punjabi" },
+  ar: { re: /[\u0600-\u06FF]/, name: "Arabic" },
+  ur: { re: /[\u0600-\u06FF]/, name: "Urdu" },
+  zh: { re: /[\u4E00-\u9FFF]/, name: "Chinese" },
+  ja: { re: /[\u3040-\u30FF]/, name: "Japanese" },
+  ko: { re: /[\uAC00-\uD7AF]/, name: "Korean" },
+  ru: { re: /[\u0400-\u04FF]/, name: "Russian" },
+  uk: { re: /[\u0400-\u04FF]/, name: "Ukrainian" },
+  th: { re: /[\u0E00-\u0E7F]/, name: "Thai" },
+  he: { re: /[\u0590-\u05FF]/, name: "Hebrew" },
+};
+function ttCheckScriptMismatch(text: string, langCode: string): string | null {
+  if (!text.trim()) return null;
+  const base = langCode.split("-")[0]!.toLowerCase();
+  const s = TT_SCRIPT_RANGES[base];
+  if (!s) return null;
+  if (s.re.test(text)) return null;
+  return `Looks like the text is not in ${s.name} script — translating anyway. For best accuracy, try speaking/typing in ${s.name}.`;
+}
+function ttIsNonLatin(langCode: string): boolean {
+  return langCode.split("-")[0]!.toLowerCase() in TT_SCRIPT_RANGES;
+}
+
 const QUICK_PHRASES = [
   "Where is the station?",
   "How much is this?",
@@ -429,6 +462,8 @@ export default function TravelTalkScreen() {
   const [typeLoading, setTypeLoading] = useState(false);
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrError, setOcrError] = useState("");
+  const [langWarning, setLangWarning] = useState("");
+  const langWarnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [speechSupported, setSpeechSupported] = useState(true);
 
   const stopRecognitionRef = useRef<(() => void) | null>(null);
@@ -702,9 +737,18 @@ export default function TravelTalkScreen() {
   }, []);
 
   // Shared helper: translate text and update conversation (used by both paths)
+  function showLangWarning(msg: string) {
+    setLangWarning(msg);
+    if (langWarnTimerRef.current) clearTimeout(langWarnTimerRef.current);
+    langWarnTimerRef.current = setTimeout(() => setLangWarning(""), 7000);
+  }
+
   const handleTranscript = useCallback(async (text: string, sid: number) => {
     if (sessionRef.current !== sid) return;
     setTranscript(text);
+    // Check if recognized text matches the expected source script
+    const warning = ttCheckScriptMismatch(text, sourceLang.code);
+    if (warning) setLangWarning(warning);
     setStatus("processing");
     try {
       const result = await translateText(text, sourceLang.code, targetLang.code);
@@ -1107,6 +1151,9 @@ export default function TravelTalkScreen() {
   const handleTypeTranslate = async () => {
     const text = typeInput.trim();
     if (!text || typeLoading) return;
+    // Check script mismatch before translating
+    const warning = ttCheckScriptMismatch(text, myLang.code);
+    if (warning) showLangWarning(warning);
     setTypeLoading(true);
     setTypeTranslation("");
     try {
@@ -1602,6 +1649,14 @@ export default function TravelTalkScreen() {
             </Animated.View>
           )}
 
+          {/* Script mismatch warning */}
+          {!!langWarning && (
+            <Animated.View entering={FadeInUp} style={styles.langWarnBox}>
+              <Feather name="alert-triangle" size={13} color="#F59E0B" />
+              <Text style={styles.langWarnText}>{langWarning}</Text>
+            </Animated.View>
+          )}
+
           {/* Result area */}
           {!!transcript && (
             <Animated.View entering={FadeInDown} style={styles.resultArea}>
@@ -1715,6 +1770,12 @@ export default function TravelTalkScreen() {
                 {" "}On iPhone, use the 🌐 globe key on your keyboard.
               </Text>
             </View>
+          )}
+          {!!langWarning && (
+            <Animated.View entering={FadeInUp} style={[styles.langWarnBox, { marginTop: 8 }]}>
+              <Feather name="alert-triangle" size={13} color="#F59E0B" />
+              <Text style={styles.langWarnText}>{langWarning}</Text>
+            </Animated.View>
           )}
           {!!typeTranslation && (
             <Animated.View entering={FadeInDown} style={styles.typeResult}>
@@ -2816,5 +2877,22 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: ACCENT_TRAVEL,
     flex: 1,
+  },
+  langWarnBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    backgroundColor: "#F59E0B18",
+    borderWidth: 1,
+    borderColor: "#F59E0B44",
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 8,
+  },
+  langWarnText: {
+    flex: 1,
+    fontSize: 12,
+    color: "#F59E0B",
+    lineHeight: 17,
   },
 });
