@@ -135,12 +135,93 @@ export default function TalkScreen() {
   const roomIdRef    = useRef<string | null>(null);
   const speakStatusRef = useRef<SpeakStatus>("idle"); // avoids stale closure in onend
   const recognizerRef = useRef<InstanceType<typeof SpeechRecognition> | null>(null);
+  const roomStartedAtRef = useRef<number>(0);
+  const messagesRef  = useRef<TalkMessage[]>([]); // mirror for save-on-leave
 
   // keep refs in sync with state
   useEffect(() => { myRoleRef.current = myRole; }, [myRole]);
   useEffect(() => { roomIdRef.current = roomId; }, [roomId]);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
 
   const setSpeak = (s: SpeakStatus) => { speakStatusRef.current = s; setSpeakStatus(s); };
+
+  // ── Save & download conversation ───────────────────────────────────────────
+  function buildTranscript(msgs: TalkMessage[], rid: string, role: "A" | "B" | null): string {
+    const myLangLabel = getLangInfo(myLang).label;
+    const theirLangLabel = getLangInfo(theirLang).label;
+    const startedAt = roomStartedAtRef.current
+      ? new Date(roomStartedAtRef.current).toLocaleString()
+      : "Unknown";
+    const endedAt = new Date().toLocaleString();
+    const durMs = roomStartedAtRef.current ? Date.now() - roomStartedAtRef.current : 0;
+    const durMin = Math.round(durMs / 60000);
+
+    const lines = [
+      "=================================================",
+      "  TRANSLATE CALL — Conversation Transcript",
+      "=================================================",
+      `Room code : ${rid}`,
+      `Your role : ${role === "A" ? "Host" : "Guest"}`,
+      `Languages : ${myLangLabel} ↔ ${theirLangLabel}`,
+      `Started   : ${startedAt}`,
+      `Ended     : ${endedAt}`,
+      `Duration  : ${durMin} min`,
+      "=================================================",
+      "",
+    ];
+
+    msgs.forEach((m) => {
+      const time = new Date(m.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const speaker = m.senderRole === role ? "You" : "Them";
+      lines.push(`[${time}] ${speaker}: ${m.original}`);
+      lines.push(`         → ${m.translated}`);
+      lines.push("");
+    });
+
+    return lines.join("\n");
+  }
+
+  function downloadTranscript(text: string, rid: string) {
+    if (typeof document === "undefined") return;
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `translate-call-${rid}-${Date.now()}.txt`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function saveTalkSession(msgs: TalkMessage[], rid: string, role: "A" | "B" | null) {
+    if (!msgs.length) return;
+    try {
+      const key = "talk_sessions_v1";
+      const prev: object[] = JSON.parse(localStorage.getItem(key) ?? "[]");
+      const session = {
+        id: `talk_${Date.now()}`,
+        roomId: rid,
+        role,
+        myLang,
+        theirLang,
+        startedAt: roomStartedAtRef.current,
+        endedAt: Date.now(),
+        messages: msgs,
+      };
+      prev.unshift(session);
+      localStorage.setItem(key, JSON.stringify(prev.slice(0, 50)));
+    } catch { /* ignore */ }
+  }
+
+  function handleEndTalk() {
+    const msgs = messagesRef.current;
+    const rid  = roomIdRef.current ?? "";
+    const role = myRoleRef.current;
+    if (msgs.length > 0) {
+      saveTalkSession(msgs, rid, role);
+      downloadTranscript(buildTranscript(msgs, rid, role), rid);
+    }
+    handleLeave();
+  }
 
   // ── Polling ────────────────────────────────────────────────────────────────
   const startPolling = useCallback((id: string) => {
@@ -201,6 +282,7 @@ export default function TalkScreen() {
       setMyRole("A");
       setMessages([]);
       lastTsRef.current = 0;
+      roomStartedAtRef.current = Date.now();
       startPolling(data.roomId);
     } catch {
       setRoomError("Network error — check your connection");
@@ -219,6 +301,7 @@ export default function TalkScreen() {
       setMyRole("B");
       setMessages([]);
       lastTsRef.current = 0;
+      roomStartedAtRef.current = Date.now();
       startPolling(code);
     } catch {
       setRoomError("Network error — check your connection");
@@ -227,6 +310,12 @@ export default function TalkScreen() {
 
   // ── Leave room ─────────────────────────────────────────────────────────────
   function handleLeave() {
+    // Auto-save before clearing (silent, no download)
+    const msgs = messagesRef.current;
+    const rid  = roomIdRef.current ?? "";
+    const role = myRoleRef.current;
+    if (msgs.length > 0) saveTalkSession(msgs, rid, role);
+
     if (pollRef.current) clearInterval(pollRef.current);
     pollRef.current = null;
     recognizerRef.current?.stop();
@@ -235,8 +324,10 @@ export default function TalkScreen() {
     setMyRole(null);
     setMessages([]);
     lastTsRef.current = 0;
+    roomStartedAtRef.current = 0;
     setSpeakStatus("idle");
     setSpeakError("");
+    setCapturedText("");
     setJoinInput("");
     setRoomError("");
   }
@@ -424,16 +515,12 @@ export default function TalkScreen() {
                 <Text style={styles.howTitle}>How to use</Text>
               </View>
 
-              <Text style={styles.howIntro}>
-                Have a real conversation across any language — you speak yours, they speak theirs, and you each read the other's words translated live.
-              </Text>
-
               <View style={styles.howSteps}>
                 {[
-                  { icon: "globe" as const,         text: "Pick your language and your contact's language below" },
-                  { icon: "radio" as const,          text: "Tap Start Room → share the code (or web link) with your contact" },
-                  { icon: "smartphone" as const,     text: "They join on their device using the code, or open the web link in any browser" },
-                  { icon: "mic" as const,            text: "Both tap Speak — talk normally, read translations in real time" },
+                  { icon: "globe" as const,      text: "Set your language and your contact's language" },
+                  { icon: "radio" as const,       text: "Tap Start Room and share the room code with them" },
+                  { icon: "mic" as const,         text: "Both tap Speak, talk naturally — translations appear in real time" },
+                  { icon: "download" as const,    text: "Host taps End Talk to save & download the full transcript" },
                 ].map((s, i) => (
                   <View key={i} style={styles.howStep}>
                     <View style={styles.howStepNum}>
@@ -448,10 +535,10 @@ export default function TalkScreen() {
               </View>
 
               <View style={styles.howFallbackBox}>
-                <Feather name="wifi-off" size={13} color={Colors.accentSecondary} />
+                <Feather name="smartphone" size={13} color={Colors.accentSecondary} />
                 <Text style={styles.howFallbackText}>
-                  <Text style={{ fontWeight: "700", color: Colors.accentSecondary }}>Contact doesn't have the app? </Text>
-                  Share the web link — they see your translations live in any browser. They can't speak back, but it's great for one-sided presentations or explanations.
+                  <Text style={{ fontWeight: "700", color: Colors.accentSecondary }}>No app on their end? </Text>
+                  Share the web link — they follow your translations live in any browser. Room stays active for <Text style={{ fontWeight: "700" }}>2 hours</Text>.
                 </Text>
               </View>
             </Animated.View>
@@ -576,7 +663,7 @@ export default function TalkScreen() {
                 <Pressable
                   style={styles.roomBarBtn}
                   onPress={() => {
-                    copyToClipboard(roomId);
+                    copyToClipboard(roomId!);
                     setCopiedCode(true);
                     setTimeout(() => setCopiedCode(false), 2000);
                   }}
@@ -599,6 +686,20 @@ export default function TalkScreen() {
                 </Pressable>
               </View>
             </Animated.View>
+
+            {/* Duration note */}
+            <View style={styles.durationNote}>
+              <Feather name="clock" size={11} color={Colors.textTertiary} />
+              <Text style={styles.durationNoteText}>Room is valid for 2 hours from creation</Text>
+            </View>
+
+            {/* End Talk button — host only */}
+            {myRole === "A" && (
+              <Pressable style={styles.endTalkBtn} onPress={handleEndTalk}>
+                <Feather name="phone-off" size={15} color="#fff" />
+                <Text style={styles.endTalkBtnText}>End Talk &amp; Save Transcript</Text>
+              </Pressable>
+            )}
 
             {/* Language context bar */}
             <View style={styles.langContextBar}>
@@ -918,6 +1019,20 @@ const styles = StyleSheet.create({
     borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4,
   },
   roomBarBtnText: { fontSize: 11, fontWeight: "600", color: ACCENT_A },
+
+  durationNote: {
+    marginHorizontal: 16, marginTop: 6,
+    flexDirection: "row", alignItems: "center", gap: 5,
+  },
+  durationNoteText: { fontSize: 11, color: Colors.textTertiary },
+
+  endTalkBtn: {
+    marginHorizontal: 16, marginTop: 10,
+    backgroundColor: Colors.error,
+    borderRadius: 12, paddingVertical: 10, paddingHorizontal: 16,
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+  },
+  endTalkBtnText: { fontSize: 14, fontWeight: "700", color: "#fff" },
 
   // ── Language context bar ───────────────────────────────────────────────────
   langContextBar: {

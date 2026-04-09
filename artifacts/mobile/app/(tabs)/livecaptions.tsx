@@ -20,7 +20,6 @@ const ACCENT_LIVE_DIM = "#22C55E18";
 const ACCENT_LIVE_BORDER = "#22C55E44";
 
 // ── Storage keys ────────────────────────────────────────────────────────────
-const STORAGE_KEY_EL_KEY = "lc_el_key_v1";
 const STORAGE_KEY_HISTORY = "lc_history_v1";
 const STORAGE_KEY_TARGET_LANGS = "lc_target_langs_v1";
 
@@ -179,17 +178,6 @@ type TranslationsByLang = Record<string, TranslationState>;
 
 // ── Storage helpers ─────────────────────────────────────────────────────────
 
-function loadStoredKey(): string {
-  if (typeof localStorage === "undefined") return "";
-  return localStorage.getItem(STORAGE_KEY_EL_KEY) ?? "";
-}
-
-function saveStoredKey(key: string) {
-  if (typeof localStorage === "undefined") return;
-  if (key) localStorage.setItem(STORAGE_KEY_EL_KEY, key);
-  else localStorage.removeItem(STORAGE_KEY_EL_KEY);
-}
-
 function loadHistory(): CaptionEntry[] {
   if (typeof localStorage === "undefined") return [];
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY_HISTORY) ?? "[]"); }
@@ -268,10 +256,7 @@ export default function LiveCaptionsTab() {
   const scrollRef = useRef<ScrollView>(null);
 
   // Settings
-  const [elKey, setElKey] = useState<string>("");
-  const [elKeyInput, setElKeyInput] = useState<string>("");
   const [settingsOpen, setSettingsOpen] = useState<boolean>(false);
-  const [keySaved, setKeySaved] = useState<boolean>(false);
 
   // Caption state
   const [status, setStatus] = useState<CaptionStatus>("idle");
@@ -318,7 +303,6 @@ export default function LiveCaptionsTab() {
   const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const segmentStartRef = useRef<number | null>(null);
   const activeMimeRef = useRef<string>("");
-  const elKeyRef = useRef<string>("");
   const accumulatedRef = useRef<string>("");
   const accumulatedByLangRef = useRef<Record<string, string>>({});
   const listeningRef = useRef<boolean>(false);
@@ -327,14 +311,8 @@ export default function LiveCaptionsTab() {
   const activeRoomIdRef = useRef<string>("");
   const viewerLastTsRef = useRef<number>(0);
 
-  // Load stored key, history, and target langs on mount
+  // Load history and target langs on mount
   useEffect(() => {
-    const stored = loadStoredKey();
-    if (stored) {
-      setElKey(stored);
-      setElKeyInput(stored);
-      elKeyRef.current = stored;
-    }
     setHistory(loadHistory());
     const tl = loadTargetLangs();
     setTargetLangs(tl);
@@ -437,12 +415,8 @@ export default function LiveCaptionsTab() {
       const form = new FormData();
       const ext = mimeToExt(activeMimeRef.current || blob.type);
       form.append("audio", blob, `chunk.${ext}`);
-      const headers: Record<string, string> = {};
-      if (elKeyRef.current) headers["x-elevenlabs-key"] = elKeyRef.current;
-
       const res = await fetch(`${getApiBase()}/live-captions/transcribe`, {
         method: "POST",
-        headers,
         body: form,
       });
 
@@ -606,24 +580,6 @@ export default function LiveCaptionsTab() {
       try { recorderRef.current?.stop(); } catch {}
       try { streamRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
     };
-  }, []);
-
-  // ── Key management ──
-
-  const handleSaveKey = useCallback(() => {
-    const trimmed = elKeyInput.trim();
-    setElKey(trimmed);
-    elKeyRef.current = trimmed;
-    saveStoredKey(trimmed);
-    setKeySaved(true);
-    setTimeout(() => setKeySaved(false), 2000);
-  }, [elKeyInput]);
-
-  const handleClearKey = useCallback(() => {
-    setElKey("");
-    setElKeyInput("");
-    elKeyRef.current = "";
-    saveStoredKey("");
   }, []);
 
   // ── Target language management ──
@@ -855,7 +811,6 @@ export default function LiveCaptionsTab() {
 
   // ── Derived ──
 
-  const hasKey = !!elKey;
   const hasCaption = !!transcript;
   const tabBottom = insets.bottom + 80;
 
@@ -1050,8 +1005,14 @@ export default function LiveCaptionsTab() {
           <View style={styles.howItWorksRow}>
             <Feather name="info" size={13} color={Colors.accent} style={{ marginTop: 1 }} />
             <Text style={styles.howItWorksText}>
-              <Text style={styles.howItWorksBold}>How to use: </Text>
-              You speak, the app transcribes and translates into multiple languages at once — great for presentations, meetings, or live commentary where <Text style={styles.howItWorksBold}>one person speaks and others follow</Text>. Tap <Text style={styles.howItWorksBold}>Speak</Text> on any translation card to hear it read aloud. Tap the <Text style={styles.howItWorksBold}>share icon</Text> to create a room so a colleague can follow your translations live on their own device (read-only — they see yours, they don't speak back). For a real two-way conversation where both sides can speak in their own language, use the <Text style={styles.howItWorksBold}>Talk tab</Text>.
+              <Text style={styles.howItWorksBold}>How to use:{"\n"}</Text>
+              {"\n"}{"🎤  "}
+              <Text style={styles.howItWorksBold}>Tap Speak</Text> — talk in any language. The app transcribes and translates into all your selected target languages at once.{"\n\n"}
+              {"🔊  "}
+              <Text style={styles.howItWorksBold}>Tap the speaker icon</Text> on any translation card to hear it read aloud.{"\n\n"}
+              {"📡  "}
+              <Text style={styles.howItWorksBold}>Share icon</Text> — create a shared room so others can follow your live translations on their own device (read-only).{"\n\n"}
+              For two-way conversation use the <Text style={styles.howItWorksBold}>Talk tab</Text> instead.
             </Text>
           </View>
         </View>
@@ -1060,58 +1021,21 @@ export default function LiveCaptionsTab() {
         {settingsOpen && (
           <Animated.View entering={FadeInDown} style={styles.settingsCard}>
             <View style={styles.settingsRow}>
-              <Feather name="key" size={13} color={Colors.accent} />
-              <Text style={styles.settingsLabel}>ElevenLabs API Key</Text>
-              {hasKey && (
-                <View style={styles.keyActiveBadge}>
-                  <Text style={styles.keyActiveBadgeText}>Active</Text>
-                </View>
-              )}
-            </View>
-            <TextInput
-              style={styles.keyInput}
-              placeholder="Paste your ElevenLabs API key…"
-              placeholderTextColor={Colors.textTertiary}
-              value={elKeyInput}
-              onChangeText={setElKeyInput}
-              secureTextEntry={true}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            <View style={styles.keyActions}>
-              <Pressable
-                style={[styles.saveKeyBtn, !elKeyInput.trim() && { opacity: 0.4 }]}
-                onPress={handleSaveKey}
-                disabled={!elKeyInput.trim()}
-              >
-                <Feather name="check" size={13} color="#fff" />
-                <Text style={styles.saveKeyBtnText}>{keySaved ? "Saved!" : "Save Key"}</Text>
-              </Pressable>
-              {hasKey && (
-                <Pressable style={styles.clearKeyBtn} onPress={handleClearKey}>
-                  <Feather name="trash-2" size={13} color={Colors.error} />
-                  <Text style={styles.clearKeyBtnText}>Remove</Text>
-                </Pressable>
-              )}
+              <Feather name="cpu" size={13} color={Colors.accent} />
+              <Text style={styles.settingsLabel}>Transcription Engine</Text>
             </View>
             <Text style={styles.keyHint}>
-              {hasKey
-                ? "✓ Using ElevenLabs Scribe for transcription. Key stored only on this device."
-                : "Without a key, audio is transcribed using AI (OpenAI Whisper). Your key enables ElevenLabs Scribe with better language detection."}
+              Audio is transcribed using AI (OpenAI Whisper via Replit proxy) — no API key needed. Transcription is free as part of the app and will not charge you anything extra.
             </Text>
           </Animated.View>
         )}
 
         {/* ── Mode badge ──────────────────────────────────────────────── */}
         <View style={styles.modeBadgeRow}>
-          <View style={[styles.modeBadge, hasKey ? styles.modeBadgeLive : styles.modeBadgeDemo]}>
-            <Feather
-              name={hasKey ? "activity" : "cpu"}
-              size={11}
-              color={hasKey ? ACCENT_LIVE : Colors.accentTertiary}
-            />
-            <Text style={[styles.modeBadgeText, { color: hasKey ? ACCENT_LIVE : Colors.accentTertiary }]}>
-              {hasKey ? "LIVE MODE — ElevenLabs Scribe" : "DEMO / AI MODE — OpenAI Whisper fallback"}
+          <View style={[styles.modeBadge, styles.modeBadgeDemo]}>
+            <Feather name="cpu" size={11} color={Colors.accentTertiary} />
+            <Text style={[styles.modeBadgeText, { color: Colors.accentTertiary }]}>
+              AI Transcription — OpenAI Whisper · Free
             </Text>
           </View>
         </View>

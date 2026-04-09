@@ -1264,8 +1264,14 @@ export default function TravelTalkScreen() {
           <View style={styles.howItWorksRow}>
             <Feather name="info" size={13} color={ACCENT_TRAVEL} style={{ marginTop: 1 }} />
             <Text style={styles.howItWorksText}>
-              <Text style={styles.howItWorksBold}>How to use: </Text>
-              Select your language and the other person's language, then tap the mic and speak — the app will translate your speech in real time. The other person can reply in their language and you will see the translation instantly. You can also type in the <Text style={styles.howItWorksBold}>Type to Translate</Text> box, or tap <Text style={styles.howItWorksBold}>Scan Image</Text> to point your camera at any sign, menu, or document and get an instant translation.
+              <Text style={styles.howItWorksBold}>How to use:{"\n"}</Text>
+              {"\n"}{"🎤  "}
+              <Text style={styles.howItWorksBold}>Speak</Text> — tap the mic, say something in your language, and the translation appears instantly.{"\n\n"}
+              {"⌨️  "}
+              <Text style={styles.howItWorksBold}>Type</Text> — type any phrase and tap Translate.{"\n\n"}
+              {"📷  "}
+              <Text style={styles.howItWorksBold}>Scan</Text> — point your camera at a sign, menu, or document to get an instant translation.{"\n\n"}
+              Conversations are auto-saved so you can review them later under Saved.
             </Text>
           </View>
         </View>
@@ -1641,6 +1647,12 @@ export default function TravelTalkScreen() {
           )}
         </View>
         )}
+
+        {/* Other options for translation */}
+        <View style={styles.otherOptionsHeader}>
+          <Feather name="layers" size={13} color={ACCENT_TRAVEL} />
+          <Text style={styles.otherOptionsLabel}>Other options for translation</Text>
+        </View>
 
         {/* Type to Translate */}
         <View style={styles.typeSection}>
@@ -2125,6 +2137,16 @@ const styles = StyleSheet.create({
   processingText: {
     fontSize: 13,
     color: Colors.textSecondary,
+  },
+
+  otherOptionsHeader: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    marginHorizontal: 0, marginTop: 8, marginBottom: 4,
+    paddingHorizontal: 2,
+  },
+  otherOptionsLabel: {
+    fontSize: 11, fontWeight: "700", color: ACCENT_TRAVEL,
+    textTransform: "uppercase", letterSpacing: 0.8,
   },
 
   typeSection: {
