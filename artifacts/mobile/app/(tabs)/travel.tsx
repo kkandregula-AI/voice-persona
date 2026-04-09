@@ -1133,36 +1133,56 @@ export default function TravelTalkScreen() {
     }
   };
 
+  const resizeImageForOcr = (file: File, maxDim = 1280): Promise<{ base64: string; mimeType: string }> =>
+    new Promise((resolve, reject) => {
+      const img = new (window as any).Image() as HTMLImageElement;
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) { reject(new Error("Canvas not supported")); return; }
+        ctx.drawImage(img, 0, 0, w, h);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.88);
+        resolve({ base64: dataUrl.split(",")[1] ?? "", mimeType: "image/jpeg" });
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Could not load image")); };
+      img.src = url;
+    });
+
   const handleOcrCapture = async (file: File) => {
     setOcrLoading(true);
     setOcrError("");
     try {
-      const reader = new FileReader();
-      const base64 = await new Promise<string>((resolve, reject) => {
-        reader.onload = () => {
-          const result = reader.result as string;
-          resolve(result.split(",")[1] ?? "");
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
+      const { base64, mimeType } = await resizeImageForOcr(file);
       const res = await fetch(`${getApiBase()}/ocr-translate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           imageBase64: base64,
-          mimeType: file.type || "image/jpeg",
+          mimeType,
           targetLang: theirLang.code,
           targetLangName: theirLang.label,
         }),
       });
-      if (!res.ok) throw new Error("OCR failed");
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(errData.error ?? `Server error ${res.status}`);
+      }
       const data = await res.json() as { extractedText: string; translatedText: string };
+      if (!data.extractedText && !data.translatedText) {
+        throw new Error("No text found in image — try a clearer photo");
+      }
       setTypeInput(data.extractedText ?? "");
       setTypeTranslation(data.translatedText ?? "");
       if (data.translatedText) speakText(data.translatedText, theirLang.code);
     } catch (err) {
-      setOcrError(err instanceof Error ? err.message : "OCR failed");
+      setOcrError(err instanceof Error ? err.message : "OCR failed — try a clearer photo");
     } finally {
       setOcrLoading(false);
     }
