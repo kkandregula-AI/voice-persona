@@ -80,6 +80,7 @@ router.get("/rooms/:id/pull", (req, res) => {
     items = items.filter((t) => t.senderRole !== excludeRole);
   }
 
+  res.setHeader("Cache-Control", "no-store");
   res.json({ translations: items, roomId: room.id, mode: room.mode });
 });
 

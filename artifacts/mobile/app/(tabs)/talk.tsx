@@ -131,10 +131,12 @@ export default function TalkScreen() {
   const pollRef      = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastTsRef    = useRef(0);
   const myRoleRef    = useRef<"A" | "B" | null>(null);
+  const roomIdRef    = useRef<string | null>(null);
   const recognizerRef = useRef<InstanceType<typeof SpeechRecognition> | null>(null);
 
-  // keep ref in sync
+  // keep refs in sync with state
   useEffect(() => { myRoleRef.current = myRole; }, [myRole]);
+  useEffect(() => { roomIdRef.current = roomId; }, [roomId]);
 
   // ── Polling ────────────────────────────────────────────────────────────────
   const startPolling = useCallback((id: string) => {
@@ -237,20 +239,30 @@ export default function TalkScreen() {
 
   // ── Push message to room ───────────────────────────────────────────────────
   async function pushMessage(original: string, translated: string) {
-    if (!roomId || !myRole) return;
+    const id   = roomIdRef.current;
+    const role = myRoleRef.current;
+    if (!id || !role) return;
     const translations: Record<string, string> = { [theirLang]: translated };
     try {
-      await fetch(`${getApiBase()}/rooms/${roomId}/push`, {
+      const res = await fetch(`${getApiBase()}/rooms/${id}/push`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ original, translations, senderRole: myRole }),
+        body: JSON.stringify({ original, translations, senderRole: role }),
       });
-    } catch { /* ignore push errors */ }
-    // Add to local messages immediately
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        setSpeakError(`Send failed: ${err.error ?? res.status}`);
+        return;
+      }
+    } catch (e) {
+      setSpeakError("Network error — message not sent");
+      return;
+    }
+    // Add to local feed only after successful push
     const msg: TalkMessage = {
       id: `local-${Date.now()}`,
       timestamp: Date.now(),
-      senderRole: myRole,
+      senderRole: role,
       original,
       translated,
     };
@@ -259,13 +271,18 @@ export default function TalkScreen() {
 
   // ── Translate text ─────────────────────────────────────────────────────────
   async function translateText(text: string): Promise<string> {
-    const r = await fetch(`${getApiBase()}/translate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, toLang: theirLang }),
-    });
-    const data = await r.json() as { translated?: string; error?: string };
-    return data.translated ?? text;
+    try {
+      const r = await fetch(`${getApiBase()}/translate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, toLang: theirLang }),
+      });
+      if (!r.ok) return text; // fall back to original if API error
+      const data = await r.json() as { translated?: string; error?: string };
+      return data.translated?.trim() || text;
+    } catch {
+      return text; // fall back to original on network error
+    }
   }
 
   // ── Speak button ───────────────────────────────────────────────────────────
@@ -305,12 +322,8 @@ export default function TalkScreen() {
       const text = e.results[0]?.[0]?.transcript?.trim() ?? "";
       if (!text) { setSpeakStatus("idle"); return; }
       setSpeakStatus("translating");
-      try {
-        const translated = await translateText(text);
-        await pushMessage(text, translated);
-      } catch {
-        setSpeakError("Translation failed — try again");
-      }
+      const translated = await translateText(text); // never throws; falls back to original
+      await pushMessage(text, translated);
       setSpeakStatus("idle");
     };
     rec.onend = () => {
