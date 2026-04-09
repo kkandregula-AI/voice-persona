@@ -548,8 +548,6 @@ export default function TravelTalkScreen() {
     );
     currentSessionRef.current = sess;
     setCurrentSession(sess);
-    upsertSession(sess);
-    setAllSessions(loadSessions());
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -997,7 +995,6 @@ export default function TravelTalkScreen() {
       mode
     );
     currentSessionRef.current = sess;
-    upsertSession(sess);
     setCurrentSession(sess);
     setAllSessions(loadSessions());
     setConversation([]);
@@ -1178,6 +1175,16 @@ export default function TravelTalkScreen() {
       if (!data.extractedText && !data.translatedText) {
         throw new Error("No text found in image — try a clearer photo");
       }
+      const ocrEntry: ConvEntry = {
+        id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+        speaker: "you",
+        original: data.extractedText ?? "",
+        translated: data.translatedText ?? "",
+        originalLang: myLang.label,
+        translatedLang: theirLang.label,
+        timestamp: Date.now(),
+      };
+      setConversation((prev) => [ocrEntry, ...prev].slice(0, 30));
       setTypeInput(data.extractedText ?? "");
       setTypeTranslation(data.translatedText ?? "");
       if (data.translatedText) speakText(data.translatedText, theirLang.code);
@@ -1307,7 +1314,7 @@ export default function TravelTalkScreen() {
             >
               <Feather name="archive" size={12} color={ACCENT_TRAVEL} />
               <Text style={[styles.sessionBtnText, { color: ACCENT_TRAVEL }]}>
-                {allSessions.length} saved
+                {allSessions.filter((s) => s.messages.length > 0).length} saved
               </Text>
             </Pressable>
           </View>
