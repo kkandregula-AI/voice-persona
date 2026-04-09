@@ -9,6 +9,9 @@ import {
   Platform,
   StatusBar,
   ActivityIndicator,
+  Modal,
+  FlatList,
+  TouchableOpacity,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import Animated, { FadeInDown } from "react-native-reanimated";
@@ -65,6 +68,94 @@ const SPEECH_LANG_MAP: Record<string, string> = {
 function getLangInfo(code: string) {
   return LANG_OPTIONS.find((l) => l.code === code) ?? { code, label: code, flag: "🌐" };
 }
+
+// ── Language picker modal (bottom sheet) ──────────────────────────────────────
+function LangPickerModal({
+  visible,
+  selectedCode,
+  title,
+  onSelect,
+  onClose,
+}: {
+  visible: boolean;
+  selectedCode: string;
+  title: string;
+  onSelect: (code: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={tlStyles.modalOverlay} onPress={onClose}>
+        <Pressable style={tlStyles.modalSheet} onPress={(e) => e.stopPropagation()}>
+          <View style={tlStyles.modalHandle} />
+          <Text style={tlStyles.modalTitle}>{title}</Text>
+          <FlatList
+            data={LANG_OPTIONS}
+            keyExtractor={(l) => l.code}
+            showsVerticalScrollIndicator={false}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                style={[tlStyles.modalItem, item.code === selectedCode && tlStyles.modalItemActive]}
+                onPress={() => { onSelect(item.code); onClose(); }}
+              >
+                <Text style={tlStyles.modalItemFlag}>{item.flag}</Text>
+                <Text style={[tlStyles.modalItemLabel, item.code === selectedCode && { color: ACCENT_A }]}>
+                  {item.label}
+                </Text>
+                {item.code === selectedCode && (
+                  <Feather name="check" size={15} color={ACCENT_A} style={{ marginLeft: "auto" }} />
+                )}
+              </TouchableOpacity>
+            )}
+            style={{ maxHeight: 440 }}
+          />
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+const tlStyles = StyleSheet.create({
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "flex-end",
+  },
+  modalSheet: {
+    backgroundColor: "#16161F",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 32,
+  },
+  modalHandle: {
+    alignSelf: "center",
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#444",
+    marginBottom: 14,
+  },
+  modalTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#fff",
+    marginBottom: 10,
+  },
+  modalItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 11,
+    paddingHorizontal: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: "#1E1E2E",
+  },
+  modalItemActive: { backgroundColor: ACCENT_A + "10" },
+  modalItemFlag:  { fontSize: 20 },
+  modalItemLabel: { fontSize: 14, color: "#e0e0e0" },
+});
 
 // ── API helpers ──────────────────────────────────────────────────────────────
 function getApiBase(): string {
@@ -498,6 +589,22 @@ export default function TalkScreen() {
         )}
       </View>
 
+      {/* ── Language picker modals ─────────────────────────────────────── */}
+      <LangPickerModal
+        visible={showMyPicker}
+        selectedCode={myLang}
+        title="My Language"
+        onSelect={setMyLang}
+        onClose={() => setShowMyPicker(false)}
+      />
+      <LangPickerModal
+        visible={showTheirPicker}
+        selectedCode={theirLang}
+        title="Their Language"
+        onSelect={setTheirLang}
+        onClose={() => setShowTheirPicker(false)}
+      />
+
       <ScrollView
         ref={scrollRef}
         style={styles.scroll}
@@ -551,27 +658,11 @@ export default function TalkScreen() {
                 {/* My language */}
                 <View style={styles.langCol}>
                   <Text style={styles.langLabel}>My Language</Text>
-                  <Pressable style={styles.langBtn} onPress={() => { setShowMyPicker(!showMyPicker); setShowTheirPicker(false); }}>
+                  <Pressable style={styles.langBtn} onPress={() => { setShowMyPicker(true); setShowTheirPicker(false); }}>
                     <Text style={styles.langBtnFlag}>{myInfo.flag}</Text>
                     <Text style={styles.langBtnLabel}>{myInfo.label}</Text>
-                    <Feather name={showMyPicker ? "chevron-up" : "chevron-down"} size={14} color={Colors.textSecondary} />
+                    <Feather name="chevron-down" size={14} color={Colors.textSecondary} />
                   </Pressable>
-                  {showMyPicker && (
-                    <View style={styles.picker}>
-                      <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled>
-                        {LANG_OPTIONS.map((l) => (
-                          <Pressable
-                            key={l.code}
-                            style={[styles.pickerItem, myLang === l.code && styles.pickerItemActive]}
-                            onPress={() => { setMyLang(l.code); setShowMyPicker(false); }}
-                          >
-                            <Text style={styles.pickerItemText}>{l.flag}  {l.label}</Text>
-                            {myLang === l.code && <Feather name="check" size={13} color={ACCENT_A} />}
-                          </Pressable>
-                        ))}
-                      </ScrollView>
-                    </View>
-                  )}
                 </View>
 
                 <View style={styles.langArrow}>
@@ -581,27 +672,11 @@ export default function TalkScreen() {
                 {/* Their language */}
                 <View style={styles.langCol}>
                   <Text style={styles.langLabel}>Their Language</Text>
-                  <Pressable style={styles.langBtn} onPress={() => { setShowTheirPicker(!showTheirPicker); setShowMyPicker(false); }}>
+                  <Pressable style={styles.langBtn} onPress={() => { setShowTheirPicker(true); setShowMyPicker(false); }}>
                     <Text style={styles.langBtnFlag}>{theirInfo.flag}</Text>
                     <Text style={styles.langBtnLabel}>{theirInfo.label}</Text>
-                    <Feather name={showTheirPicker ? "chevron-up" : "chevron-down"} size={14} color={Colors.textSecondary} />
+                    <Feather name="chevron-down" size={14} color={Colors.textSecondary} />
                   </Pressable>
-                  {showTheirPicker && (
-                    <View style={styles.picker}>
-                      <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled>
-                        {LANG_OPTIONS.map((l) => (
-                          <Pressable
-                            key={l.code}
-                            style={[styles.pickerItem, theirLang === l.code && styles.pickerItemActive]}
-                            onPress={() => { setTheirLang(l.code); setShowTheirPicker(false); }}
-                          >
-                            <Text style={styles.pickerItemText}>{l.flag}  {l.label}</Text>
-                            {theirLang === l.code && <Feather name="check" size={13} color={ACCENT_A} />}
-                          </Pressable>
-                        ))}
-                      </ScrollView>
-                    </View>
-                  )}
                 </View>
               </View>
             </View>
@@ -939,23 +1014,6 @@ const styles = StyleSheet.create({
   },
   langBtnFlag:  { fontSize: 18 },
   langBtnLabel: { flex: 1, fontSize: 13, color: Colors.text, fontWeight: "600" },
-  picker: {
-    position: "absolute",
-    top: 70, left: 0, right: 0, zIndex: 99,
-    backgroundColor: Colors.card,
-    borderWidth: 1, borderColor: Colors.cardBorder,
-    borderRadius: 10,
-    overflow: "hidden",
-    shadowColor: "#000", shadowOpacity: 0.4, shadowRadius: 12, shadowOffset: { width: 0, height: 4 },
-    elevation: 10,
-  },
-  pickerItem: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    paddingHorizontal: 14, paddingVertical: 10,
-    borderBottomWidth: 1, borderBottomColor: Colors.cardBorder,
-  },
-  pickerItemActive: { backgroundColor: ACCENT_A + "12" },
-  pickerItemText:   { fontSize: 13, color: Colors.text },
 
   // ── Setup card ─────────────────────────────────────────────────────────────
   setupCard: {
