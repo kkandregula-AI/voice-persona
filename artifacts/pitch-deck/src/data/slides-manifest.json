@@ -4,7 +4,7 @@
     "position": 1,
     "filepath": "src/pages/slides/TitleSlide.tsx",
     "title": "Voice Persona AI",
-    "description": "Opening title slide — Week 3 badge, four feature pills, April 2026 date.",
+    "description": "Hero title slide — Week 3 badge, 5 feature pills, key stats in footer (7 tabs, 50+ languages, 15s clone).",
     "speakerNotes": ""
   },
   {
@@ -12,7 +12,7 @@
     "position": 2,
     "filepath": "src/pages/slides/ProblemSlide.tsx",
     "title": "The Problem",
-    "description": "Three core pain points: voiceover editing time, language barriers, and generic AI voices.",
+    "description": "Three core pain points: voiceover editing time, language barriers killing real moments, and generic AI voices losing brand identity.",
     "speakerNotes": ""
   },
   {
@@ -20,15 +20,15 @@
     "position": 3,
     "filepath": "src/pages/slides/SolutionSlide.tsx",
     "title": "The Solution",
-    "description": "Four superpowers in a 2x2 grid: Voice Cloning, Persona Engine, Travel Talk, Live Interpreter.",
+    "description": "Four superpowers in a 2x2 grid: Voice Studio + Creator, Travel Talk (50+ langs), Live Interpreter, Two-Way Talk Room.",
     "speakerNotes": ""
   },
   {
     "id": "4d5e6f7a-8b9c-0d1e-2f3a-4b5c6d7e8f9a",
     "position": 4,
     "filepath": "src/pages/slides/FeaturesSlide.tsx",
-    "title": "Studio Features",
-    "description": "Four key features: ElevenLabs clone, AI Reel Generator, Emotion Engine, Waveform + History.",
+    "title": "Studio + Creator Mode",
+    "description": "Four feature cards: ElevenLabs voice clone (15s), AI Reel Generator (4 formats), Emotion Engine (4 emotions), Waveform + SRT export.",
     "speakerNotes": ""
   },
   {
@@ -36,15 +36,15 @@
     "position": 5,
     "filepath": "src/pages/slides/TravelTalkSlide.tsx",
     "title": "Travel Talk",
-    "description": "Real-time AI translation across 30+ languages with voice, text input, and show-to-them card.",
+    "description": "50+ languages, 4 modes (Speak/Listen/Live/Type), Camera OCR, Memory sessions, script mismatch detection, Azure OpenAI pipeline.",
     "speakerNotes": ""
   },
   {
     "id": "a1b2c3d4-e5f6-7a8b-9c0d-e1f2a3b4c5d6",
     "position": 6,
     "filepath": "src/pages/slides/InterpreterSlide.tsx",
-    "title": "Live Interpreter",
-    "description": "Week 3 hero — simultaneous multi-language translation with per-language Speak cards.",
+    "title": "Interpreter + Talk",
+    "description": "Week 3 hero — two panels: Live Interpreter (1-to-many simultaneous with Speak cards) and Two-Way Talk Room (QR share, bilingual transcript).",
     "speakerNotes": ""
   },
   {
@@ -52,7 +52,7 @@
     "position": 7,
     "filepath": "src/pages/slides/BuildSlide.tsx",
     "title": "Week 3 + Tech Stack",
-    "description": "What was shipped in Week 3 and the full technology stack.",
+    "description": "Left: 5 Week 3 deliverables (Talk rooms, script mismatch, keyboard hints, 50+ languages, modal pickers). Right: full tech stack with color-coded rows.",
     "speakerNotes": ""
   },
   {
@@ -60,7 +60,7 @@
     "position": 8,
     "filepath": "src/pages/slides/ClosingSlide.tsx",
     "title": "Try It Now",
-    "description": "Closing slide with live URL — 30+ languages, 5 tabs, 3 persona modes, 15s clone.",
+    "description": "Closing — live URL, 5 stats: 50+ languages, 7 tabs, 3 persona modes, 15s clone, 4 emotions. Tagline: Your Voice. Any Language. Infinite Personas.",
     "speakerNotes": ""
   }
 ]
