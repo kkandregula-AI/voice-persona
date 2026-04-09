@@ -694,26 +694,30 @@ export default function LiveCaptionsTab() {
     }
   }, [demoText, demoLang, translateToAllTargets]);
 
-  const handleDemoSample = useCallback(async (sample: typeof DEMO_SAMPLES[0]) => {
-    setDemoText(sample.text);
-    setDemoLang(sample.lang);
-    setLangCode(sample.lang);
-    setLangLabel(sample.label);
-    setTranscript(sample.text);
-    setCaptionTimestamp(stamp());
-    accumulatedRef.current = sample.text;
-    setTranslationsByLang({});
-    accumulatedByLangRef.current = {};
-    setDemoLoading(true);
-    try {
-      await translateToAllTargets(sample.text, sample.lang);
-    } catch {
-      // Fallback: show original
-      setTranslationsByLang({ en: { text: sample.text, loading: false } });
-    } finally {
-      setDemoLoading(false);
+  const handleDemoLangSelect = useCallback(async (code: string, label: string) => {
+    setDemoLang(code);
+    const sample = DEMO_SAMPLES.find((s) => s.lang === code);
+    // If text box is empty and we have a sample phrase, auto-fill and translate
+    if (!demoText.trim() && sample) {
+      setDemoText(sample.text);
+      setLangCode(code);
+      setLangLabel(label);
+      setTranscript(sample.text);
+      setCaptionTimestamp(stamp());
+      accumulatedRef.current = sample.text;
+      setTranslationsByLang({});
+      accumulatedByLangRef.current = {};
+      setDemoLoading(true);
+      try {
+        await translateToAllTargets(sample.text, code);
+      } catch {
+        setTranslationsByLang({ en: { text: sample.text, loading: false } });
+      } finally {
+        setDemoLoading(false);
+      }
     }
-  }, [translateToAllTargets]);
+    // If text is already typed, just update source language (don't overwrite text)
+  }, [demoText, translateToAllTargets]);
 
   // ── Actions ──
 
@@ -1346,29 +1350,31 @@ export default function LiveCaptionsTab() {
             <Text style={styles.demoHeaderText}>Demo / Manual Translate</Text>
           </View>
           <Text style={styles.demoHint}>
-            No microphone? Pick a sample phrase or type any text — translations appear in all selected target languages.
+            Select a language to load a sample phrase (or type your own), then tap Translate.
           </Text>
 
-          {/* Sample phrases */}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.samplesScroll}
-            contentContainerStyle={styles.samplesContent}
-          >
-            {DEMO_SAMPLES.map((s) => (
-              <Pressable
-                key={s.lang}
-                style={[styles.sampleChip, demoLang === s.lang && styles.sampleChipActive]}
-                onPress={() => handleDemoSample(s)}
-              >
-                <Text style={styles.sampleChipFlag}>{LANG_FLAGS[s.lang] ?? "🌐"}</Text>
-                <Text style={[styles.sampleChipText, demoLang === s.lang && { color: Colors.accentTertiary }]}>
-                  {s.label}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
+          {/* Source language — tap to set source; auto-fills sample text when box is empty */}
+          <View style={styles.demoLangRow}>
+            <Text style={styles.demoLangLabel}>Source Language:</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.demoLangOptions}
+            >
+              {DEMO_LANG_OPTIONS.map((l) => (
+                <Pressable
+                  key={l.code}
+                  style={[styles.demoLangChip, demoLang === l.code && styles.demoLangChipActive]}
+                  onPress={() => handleDemoLangSelect(l.code, l.label)}
+                >
+                  <Text style={styles.sampleChipFlag}>{LANG_FLAGS[l.code] ?? "🌐"}</Text>
+                  <Text style={[styles.demoLangChipText, demoLang === l.code && { color: Colors.accentTertiary }]}>
+                    {l.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
 
           {/* Manual input */}
           <TextInput
@@ -1381,28 +1387,6 @@ export default function LiveCaptionsTab() {
             numberOfLines={3}
             textAlignVertical="top"
           />
-
-          {/* Source language selector */}
-          <View style={styles.demoLangRow}>
-            <Text style={styles.demoLangLabel}>Source Language:</Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.demoLangOptions}
-            >
-              {DEMO_LANG_OPTIONS.map((l) => (
-                <Pressable
-                  key={l.code}
-                  style={[styles.demoLangChip, demoLang === l.code && styles.demoLangChipActive]}
-                  onPress={() => setDemoLang(l.code)}
-                >
-                  <Text style={[styles.demoLangChipText, demoLang === l.code && { color: Colors.accentTertiary }]}>
-                    {l.label}
-                  </Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-          </View>
 
           <Pressable
             style={[styles.translateBtn, (!demoText.trim() || demoLoading) && { opacity: 0.4 }]}
