@@ -10,6 +10,56 @@ function getSlideIndex(pathname: string): number {
   return slides.findIndex((s) => s.position === position);
 }
 
+const presenterBase = import.meta.env.BASE_URL;
+
+function PresenterBadge() {
+  return (
+    <div
+      style={{
+        position: "fixed",
+        bottom: "2.2vh",
+        right: "2.5vw",
+        display: "flex",
+        alignItems: "center",
+        gap: "0.75vw",
+        background: "rgba(5,5,8,0.72)",
+        border: "1px solid rgba(0,212,255,0.22)",
+        borderRadius: "100px",
+        padding: "0.55vh 1.1vw 0.55vh 0.25vw",
+        backdropFilter: "blur(10px)",
+        WebkitBackdropFilter: "blur(10px)",
+        zIndex: 9999,
+        pointerEvents: "none",
+      }}
+    >
+      <img
+        src={`${presenterBase}presenter.jpg`}
+        alt="Presenter"
+        style={{
+          width: "3.2vw",
+          height: "3.2vw",
+          borderRadius: "50%",
+          objectFit: "cover",
+          objectPosition: "center top",
+          border: "1.5px solid rgba(0,212,255,0.55)",
+          flexShrink: 0,
+        }}
+      />
+      <div style={{ display: "flex", flexDirection: "column", gap: "0.1vh" }}>
+        <div style={{ fontFamily: "Space Grotesk, sans-serif", fontSize: "0.95vw", fontWeight: 600, color: "#F8FAFC", lineHeight: 1.2, whiteSpace: "nowrap" }}>
+          Kandregula V S S V P
+        </div>
+        <div style={{ fontFamily: "Space Grotesk, sans-serif", fontSize: "0.95vw", fontWeight: 600, color: "#F8FAFC", lineHeight: 1.2, whiteSpace: "nowrap" }}>
+          Krishnamurthy
+        </div>
+        <div style={{ fontFamily: "Inter, sans-serif", fontSize: "0.75vw", color: "rgba(0,212,255,0.8)", fontWeight: 500, letterSpacing: "0.05em" }}>
+          Buildathon Week 3
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SlideEditor() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -69,6 +119,7 @@ function SlideEditor() {
           <slide.Component />
         </div>
       ))}
+      <PresenterBadge />
     </div>
   );
 }
