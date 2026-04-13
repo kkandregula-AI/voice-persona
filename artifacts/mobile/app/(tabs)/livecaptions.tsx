@@ -342,7 +342,7 @@ function transcribeWithWebSpeech(
 
   return () => {
     stopped = true;
-    try { rec.abort(); } catch { /* ignore */ }
+    try { rec.stop(); } catch { /* ignore */ }  // stop (not abort) so final results still dispatch
   };
 }
 
@@ -372,6 +372,7 @@ function speakText(
 export default function LiveCaptionsTab() {
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
+  const captionPanelYRef = useRef<number>(300); // updated via onLayout
 
   // Settings
   const [settingsOpen, setSettingsOpen] = useState<boolean>(false);
@@ -556,13 +557,13 @@ export default function LiveCaptionsTab() {
             targetLangsRef.current[0] ?? "en",
             () => listeningRef.current,
             (text, detectedLang) => {
-              if (!listeningRef.current) return;
+              // No listeningRef guard here — rec.stop() dispatches final result AFTER listeningRef=false
               accumulatedRef.current = accumulatedRef.current ? `${accumulatedRef.current} ${text}` : text;
               setTranscript(accumulatedRef.current);
               setLangCode(detectedLang);
               setLangLabel(getLangLabel(detectedLang));
               setCaptionTimestamp(stamp());
-              setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 150);
+              setTimeout(() => scrollRef.current?.scrollTo({ y: captionPanelYRef.current, animated: true }), 150);
               void translateToAllTargets(text, detectedLang);
             },
             (errMsg2) => {
@@ -603,7 +604,7 @@ export default function LiveCaptionsTab() {
       setStatus(listeningRef.current ? "listening" : "idle");
 
       // Scroll down so the results panel is visible
-      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 150);
+      setTimeout(() => scrollRef.current?.scrollTo({ y: captionPanelYRef.current, animated: true }), 150);
 
       await translateToAllTargets(newText, data.languageCode);
 
@@ -666,13 +667,13 @@ export default function LiveCaptionsTab() {
           targetLangsRef.current[0] ?? "en",
           () => listeningRef.current,
           (text, detectedLang) => {
-            if (!listeningRef.current) return;
+            // No listeningRef guard here — rec.stop() dispatches final result AFTER listeningRef=false
             accumulatedRef.current = accumulatedRef.current ? `${accumulatedRef.current} ${text}` : text;
             setTranscript(accumulatedRef.current);
             setLangCode(detectedLang);
             setLangLabel(getLangLabel(detectedLang));
             setCaptionTimestamp(stamp());
-            setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 150);
+            setTimeout(() => scrollRef.current?.scrollTo({ y: captionPanelYRef.current, animated: true }), 150);
             void translateToAllTargets(text, detectedLang);
           },
           (errMsg) => {
@@ -1411,7 +1412,11 @@ export default function LiveCaptionsTab() {
 
         {/* ── Results panel ───────────────────────────────────────────── */}
         {hasCaption && (
-          <Animated.View entering={FadeInDown} style={styles.captionPanel}>
+          <Animated.View
+            entering={FadeInDown}
+            style={styles.captionPanel}
+            onLayout={(e) => { captionPanelYRef.current = e.nativeEvent.layout.y; }}
+          >
             {/* Detected language + timestamp */}
             <View style={styles.captionHeader}>
               <View style={styles.langBadge}>
