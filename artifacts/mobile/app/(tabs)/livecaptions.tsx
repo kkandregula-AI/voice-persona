@@ -287,6 +287,7 @@ type WebSpeechRecognitionType = {
 function transcribeWithWebSpeech(
   stream: MediaStream,
   langCode: string,
+  shouldContinue: () => boolean,
   onResult: (text: string, detectedLang: string) => void,
   onError: (msg: string) => void,
 ): (() => void) {
@@ -298,6 +299,8 @@ function transcribeWithWebSpeech(
   if (!SpeechRecognitionCtor) return () => {};
 
   void stream; // stream is used for mic permission but Web Speech manages its own
+
+  let stopped = false;
 
   const rec = new SpeechRecognitionCtor();
   rec.continuous = true;
@@ -314,16 +317,33 @@ function transcribeWithWebSpeech(
   };
 
   rec.onerror = (e: { error: string }) => {
-    if (e.error !== "no-speech" && e.error !== "aborted") {
-      onError(`Speech recognition error: ${e.error}`);
+    if (e.error === "aborted" || e.error === "no-speech") return; // non-fatal, will restart via onend
+    if (e.error === "not-allowed") {
+      onError("Microphone permission denied. Please allow mic access in Safari settings.");
+      return;
+    }
+    // Other errors: restart if still active, don't surface unless persistent
+    console.warn("Web Speech error:", e.error);
+  };
+
+  // iOS Safari fires onend after every utterance even with continuous=true.
+  // Re-start the recognizer immediately so listening never drops.
+  rec.onend = () => {
+    if (!stopped && shouldContinue()) {
+      setTimeout(() => {
+        if (!stopped && shouldContinue()) {
+          try { rec.start(); } catch { /* already started or permission revoked */ }
+        }
+      }, 100);
     }
   };
 
-  rec.onend = () => { /* restarted externally */ };
-
   try { rec.start(); } catch { /* already started */ }
 
-  return () => { try { rec.stop(); } catch { /* ignore */ } };
+  return () => {
+    stopped = true;
+    try { rec.abort(); } catch { /* ignore */ }
+  };
 }
 
 // ── TTS helper ───────────────────────────────────────────────────────────────
@@ -534,6 +554,7 @@ export default function LiveCaptionsTab() {
           const stopFn = transcribeWithWebSpeech(
             streamRef.current,
             targetLangsRef.current[0] ?? "en",
+            () => listeningRef.current,
             (text, detectedLang) => {
               if (!listeningRef.current) return;
               accumulatedRef.current = accumulatedRef.current ? `${accumulatedRef.current} ${text}` : text;
@@ -643,6 +664,7 @@ export default function LiveCaptionsTab() {
         const stopFn = transcribeWithWebSpeech(
           stream,
           targetLangsRef.current[0] ?? "en",
+          () => listeningRef.current,
           (text, detectedLang) => {
             if (!listeningRef.current) return;
             accumulatedRef.current = accumulatedRef.current ? `${accumulatedRef.current} ${text}` : text;
