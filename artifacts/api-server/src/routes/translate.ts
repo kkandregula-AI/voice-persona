@@ -1,12 +1,7 @@
 import { Router, type IRouter } from "express";
-import OpenAI from "openai";
+import { openai, isAIConfigured } from "../lib/openai";
 
 const router: IRouter = Router();
-
-const openai = new OpenAI({
-  baseURL: process.env["AI_INTEGRATIONS_OPENAI_BASE_URL"],
-  apiKey: process.env["AI_INTEGRATIONS_OPENAI_API_KEY"] ?? "dummy",
-});
 
 const LANG_LABELS: Record<string, string> = {
   en: "English", hi: "Hindi", te: "Telugu", ta: "Tamil", kn: "Kannada",
@@ -26,6 +21,10 @@ router.post("/translate", async (req, res) => {
 
   if (!text?.trim()) return res.status(400).json({ error: "No text provided" });
   if (!toLang) return res.status(400).json({ error: "No target language" });
+
+  if (!isAIConfigured()) {
+    return res.status(503).json({ error: "AI translation is not configured. Add an OPENAI_API_KEY environment variable." });
+  }
 
   const targetLabel = getLangLabel(toLang);
 

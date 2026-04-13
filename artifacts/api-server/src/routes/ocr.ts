@@ -1,12 +1,7 @@
 import { Router, type IRouter } from "express";
-import OpenAI from "openai";
+import { openai } from "../lib/openai";
 
 const router: IRouter = Router();
-
-const openai = new OpenAI({
-  baseURL: process.env["AI_INTEGRATIONS_OPENAI_BASE_URL"],
-  apiKey: process.env["AI_INTEGRATIONS_OPENAI_API_KEY"] ?? "dummy",
-});
 
 router.post("/ocr-translate", async (req, res) => {
   const { imageBase64, mimeType, targetLang, targetLangName } = req.body as {

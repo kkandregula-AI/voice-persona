@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import multer from "multer";
-import OpenAI from "openai";
+import { openai, isAIConfigured } from "../lib/openai";
 
 const router: IRouter = Router();
 
@@ -9,12 +9,12 @@ const upload = multer({
   limits: { fileSize: 25 * 1024 * 1024 },
 });
 
-const openai = new OpenAI({
-  baseURL: process.env["AI_INTEGRATIONS_OPENAI_BASE_URL"],
-  apiKey: process.env["AI_INTEGRATIONS_OPENAI_API_KEY"] ?? "dummy",
-});
-
 router.post("/ai/transcribe", upload.single("audio"), async (req, res) => {
+  if (!isAIConfigured()) {
+    res.status(503).json({ error: "AI transcription is not configured. Add an OPENAI_API_KEY environment variable." });
+    return;
+  }
+
   try {
     const file = req.file;
     if (!file || !file.buffer.length) {

@@ -3,7 +3,7 @@ import { Router, type IRouter } from "express";
 const router: IRouter = Router();
 
 const OPENAI_BASE = process.env["AI_INTEGRATIONS_OPENAI_BASE_URL"];
-const OPENAI_KEY = process.env["AI_INTEGRATIONS_OPENAI_API_KEY"];
+const OPENAI_KEY = process.env["AI_INTEGRATIONS_OPENAI_API_KEY"] ?? process.env["OPENAI_API_KEY"];
 
 type Msg = {
   speaker: string;

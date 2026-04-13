@@ -1,14 +1,9 @@
 import { Router, type IRouter } from "express";
 import multer from "multer";
-import OpenAI from "openai";
+import { openai, isAIConfigured } from "../lib/openai";
 
 const router: IRouter = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
-
-const openai = new OpenAI({
-  baseURL: process.env["AI_INTEGRATIONS_OPENAI_BASE_URL"],
-  apiKey: process.env["AI_INTEGRATIONS_OPENAI_API_KEY"] ?? "dummy",
-});
 
 const LANG_LABELS: Record<string, string> = {
   en: "English", hi: "Hindi", te: "Telugu", ta: "Tamil", kn: "Kannada",
@@ -85,6 +80,10 @@ router.post("/live-captions/transcribe", upload.single("audio"), async (req, res
       console.error("ElevenLabs STT error:", err);
       return res.status(502).json({ error: "Could not reach ElevenLabs" });
     }
+  }
+
+  if (!isAIConfigured()) {
+    return res.status(503).json({ error: "AI transcription is not configured on this server. Please add an OPENAI_API_KEY environment variable." });
   }
 
   try {
