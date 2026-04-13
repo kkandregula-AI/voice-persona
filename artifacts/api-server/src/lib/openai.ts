@@ -26,3 +26,17 @@ export function transcribeModel(): string {
 export function chatModel(): string {
   return "gpt-4o-mini";
 }
+
+// ── Groq (free Whisper, 99 languages including Telugu/Tamil/etc.) ─────────────
+export function groqClient(): OpenAI | null {
+  const key = process.env["GROQ_API_KEY"];
+  if (!key) return null;
+  return new OpenAI({
+    baseURL: "https://api.groq.com/openai/v1",
+    apiKey: key,
+  });
+}
+
+export function isGroqConfigured(): boolean {
+  return !!process.env["GROQ_API_KEY"];
+}

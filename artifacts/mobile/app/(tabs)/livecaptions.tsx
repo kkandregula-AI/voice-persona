@@ -66,6 +66,15 @@ const ALL_LANG_MAP: Record<string, { label: string; flag: string }> = {};
 });
 
 // BCP-47 tags for Web Speech API (Speak button)
+// Languages that iOS Safari's Web Speech API (Siri) actually recognises.
+// Dravidian languages (te, ta, kn, ml) and most Indic scripts (bn, mr, gu, pa)
+// are NOT in Siri's ASR list — for those we route via server (Groq/OpenAI Whisper).
+const IOS_SPEECH_SUPPORTED_LANGS = new Set([
+  "en","hi","ar","zh","fr","de","es","pt","it","ru","ja","ko",
+  "nl","tr","sv","da","fi","no","pl","cs","ro","hu","sk","bg",
+  "hr","sr","uk","el","he","th","vi","id","ms","tl","ca",
+]);
+
 const SPEECH_LANG_MAP: Record<string, string> = {
   en: "en-US", hi: "hi-IN", te: "te-IN", ta: "ta-IN", kn: "kn-IN",
   ml: "ml-IN", bn: "bn-BD", mr: "mr-IN", gu: "gu-IN", pa: "pa-IN",
@@ -555,6 +564,7 @@ export default function LiveCaptionsTab() {
       const form = new FormData();
       const ext = mimeToExt(activeMimeRef.current || blob.type);
       form.append("audio", blob, `chunk.${ext}`);
+      form.append("lang", sourceLangRef.current.split("-")[0]);  // Whisper language hint
       const res = await fetch(`${getApiBase()}/live-captions/transcribe`, {
         method: "POST",
         body: form,
@@ -563,8 +573,8 @@ export default function LiveCaptionsTab() {
       if (!res.ok) {
         let errMsg = "Transcription failed";
         try { const e = await res.json() as { error?: string }; errMsg = e.error ?? errMsg; } catch { /* ignore */ }
-        // Server error — fall back to Web Speech API if the browser supports it
-        if (hasSpeechRecognition() && streamRef.current) {
+        // Server error — fall back to Web Speech only if the language is iOS-supported
+        if (hasSpeechRecognition() && streamRef.current && IOS_SPEECH_SUPPORTED_LANGS.has(sourceLangRef.current)) {
           webSpeechModeRef.current = true;
           // Stop MediaRecorder loop — Web Speech takes over
           if (chunkTimerRef.current !== null) { clearTimeout(chunkTimerRef.current); chunkTimerRef.current = null; }
@@ -673,7 +683,9 @@ export default function LiveCaptionsTab() {
 
     // ── Web Speech API path (iOS Safari / Chrome) ──────────────────────────
     // Must be started synchronously within a user gesture — do it here, not later.
-    if (hasSpeechRecognition()) {
+    // Only for languages Siri actually supports; others route to server Whisper.
+    const srcLangIsWebSpeechSupported = IOS_SPEECH_SUPPORTED_LANGS.has(sourceLangRef.current);
+    if (hasSpeechRecognition() && srcLangIsWebSpeechSupported) {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
         streamRef.current = stream;
@@ -1394,11 +1406,15 @@ export default function LiveCaptionsTab() {
                 >
                   <Text style={[styles.srcChipText, sel && styles.srcChipTextActive]}>
                     {opt.flag} {opt.label}
+                    {!IOS_SPEECH_SUPPORTED_LANGS.has(opt.code) ? " ✦" : ""}
                   </Text>
                 </Pressable>
               );
             })}
           </ScrollView>
+          <Text style={styles.srcLangNote}>
+            ✦ Requires GROQ_API_KEY on the server (free at groq.com) — supports Telugu, Tamil, and all other languages.
+          </Text>
         </View>
 
         {/* ── Mic Controls ────────────────────────────────────────────── */}
@@ -1992,6 +2008,12 @@ const styles = StyleSheet.create({
   srcChipTextActive: {
     color: "#A78BFA",
     fontWeight: "700",
+  },
+  srcLangNote: {
+    fontSize: 10,
+    color: Colors.textTertiary,
+    fontStyle: "italic",
+    marginTop: 6,
   },
 
   // Controls card

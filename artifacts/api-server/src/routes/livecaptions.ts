@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import multer from "multer";
-import { openai, isAIConfigured, transcribeModel } from "../lib/openai";
+import { openai, isAIConfigured, transcribeModel, groqClient, isGroqConfigured } from "../lib/openai";
 
 const router: IRouter = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
@@ -82,9 +82,24 @@ router.post("/live-captions/transcribe", upload.single("audio"), async (req, res
     }
   }
 
-  if (!isAIConfigured()) {
-    return res.status(503).json({ error: "AI transcription is not configured on this server. Please add an OPENAI_API_KEY environment variable." });
+  // ── Groq → OpenAI fallback chain ─────────────────────────────────────────
+  const groq = groqClient();
+  if (!groq && !isAIConfigured()) {
+    return res.status(503).json({
+      error: "No transcription provider configured. Add GROQ_API_KEY (free at groq.com) or OPENAI_API_KEY to your server environment variables. Groq supports Telugu, Tamil, and all other languages.",
+    });
   }
+
+  // Language hint from client (ISO 639-1, e.g. "te", "hi", "en")
+  const langHint = (
+    (req.body as Record<string, unknown>)?.["lang"] ??
+    req.query["lang"]
+  ) as string | undefined;
+  const hintCode = typeof langHint === "string" ? langHint.split("-")[0] : undefined;
+
+  const client = groq ?? openai;
+  const model  = groq ? "whisper-large-v3-turbo" : transcribeModel();
+  const source = groq ? "groq" : "openai";
 
   try {
     const audioFile = new File(
@@ -93,51 +108,30 @@ router.post("/live-captions/transcribe", upload.single("audio"), async (req, res
       { type: file.mimetype || "audio/webm" }
     );
 
-    // Step 1: Transcribe — use gpt-4o-mini-transcribe with "json" format
-    // ("verbose_json" is not supported by this model on the Replit proxy)
-    const transcribeResult = await openai.audio.transcriptions.create({
+    const transcribeParams: Parameters<typeof client.audio.transcriptions.create>[0] = {
       file: audioFile,
-      model: transcribeModel(),
+      model,
       response_format: "json",
-    } as Parameters<typeof openai.audio.transcriptions.create>[0]);
+      ...(hintCode ? { language: hintCode } : {}),
+    };
 
+    const transcribeResult = await client.audio.transcriptions.create(transcribeParams);
     const transcribedText = (transcribeResult as unknown as { text: string }).text?.trim();
+
     if (!transcribedText) {
-      return res.json({ text: "", languageCode: "", languageLabel: "", languageProbability: 0, source: "openai" });
+      return res.json({ text: "", languageCode: hintCode ?? "", languageLabel: getLangLabel(hintCode ?? ""), languageProbability: 0, source });
     }
 
-    // Step 2: Detect language from the transcribed text using GPT
-    let langCode = "";
-    let langLabel = "";
-    try {
-      const langResult = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content: `Detect the language of the text. Return only valid JSON with two fields: "languageCode" (ISO 639-1, e.g. "hi","te","en","zh") and "languageLabel" (full name in English, e.g. "Hindi","Telugu"). No markdown, no extra text.`,
-          },
-          { role: "user", content: transcribedText },
-        ],
-        response_format: { type: "json_object" },
-        max_tokens: 60,
-      });
-      const parsed = JSON.parse(langResult.choices[0]?.message?.content ?? "{}") as {
-        languageCode?: string;
-        languageLabel?: string;
-      };
-      langCode = parsed.languageCode ?? "";
-      langLabel = parsed.languageLabel ?? getLangLabel(langCode);
-    } catch {
-      // Language detection is non-critical — proceed without it
-    }
+    // Use hint code as detected lang (Whisper already respects the language param)
+    const langCode = hintCode ?? "";
+    const langLabel = getLangLabel(langCode);
 
     return res.json({
       text: transcribedText,
       languageCode: langCode,
-      languageLabel: langLabel || getLangLabel(langCode),
-      languageProbability: 0.9,
-      source: "openai",
+      languageLabel: langLabel,
+      languageProbability: 0.95,
+      source,
     });
   } catch (err) {
     console.error("Transcription error:", err);
