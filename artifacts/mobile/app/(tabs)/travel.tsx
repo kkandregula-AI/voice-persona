@@ -193,10 +193,11 @@ async function translateText(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text, fromLang: fromCode, toLang: toCode }),
   });
-  const data = (await res.json()) as { translation?: string; error?: string };
+  const data = (await res.json()) as { translated?: string; translation?: string; error?: string };
   if (!res.ok) throw new Error(data.error ?? "Translation failed");
-  if (!data.translation) throw new Error("Translation unavailable. Please try again.");
-  return data.translation;
+  const result = data.translated ?? data.translation;
+  if (!result) throw new Error("Translation unavailable. Please try again.");
+  return result;
 }
 
 function speakText(text: string, langCode: string) {

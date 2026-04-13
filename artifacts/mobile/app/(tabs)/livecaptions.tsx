@@ -386,8 +386,8 @@ export default function LiveCaptionsTab() {
         body: JSON.stringify({ text, fromLang: from, toLang: to }),
       });
       if (!res.ok) throw new Error("translate failed");
-      const data = await res.json() as { translation?: string };
-      return data.translation ?? text;
+      const data = await res.json() as { translated?: string; translation?: string };
+      return data.translated ?? data.translation ?? text;
     } catch {
       return text;
     }
@@ -465,7 +465,7 @@ export default function LiveCaptionsTab() {
 
       const newText = data.text?.trim();
       if (!newText) {
-        if (listeningRef.current) setStatus("listening");
+        setStatus(listeningRef.current ? "listening" : "idle");
         return;
       }
 
@@ -477,7 +477,7 @@ export default function LiveCaptionsTab() {
       setLangCode(data.languageCode);
       setLangLabel(data.languageLabel || getLangLabel(data.languageCode));
       setCaptionTimestamp(stamp());
-      if (listeningRef.current) setStatus("listening");
+      setStatus(listeningRef.current ? "listening" : "idle");
 
       await translateToAllTargets(newText, data.languageCode);
 
