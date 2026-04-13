@@ -1,0 +1,120 @@
+ 
+[Region: asia-southeast1]
+=========================
+Using Detected Dockerfile
+=========================
+
+context: wkx4-7PVW
+
+internal
+load build definition from Dockerfile
+0ms
+
+internal
+load metadata for docker.io/library/node:20-slim
+802ms
+
+auth
+library/node:pull token for registry-1.docker.io
+0ms
+
+internal
+load .dockerignore
+0ms
+
+internal
+load build context
+0ms
+
+[ 1/18] FROM docker.io/library/node:20-slim@sha256:f93745c153377ee2fbbdd6e24efcd03cd2e86d6ab1d8aa9916a3790c40313a55
+5ms
+
+[ 2/18] WORKDIR /app cached
+0ms
+
+[ 3/18] RUN npm install -g pnpm@10
+1s
+npm notice
+
+[ 4/18] COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
+27ms
+
+[ 5/18] COPY lib/api-spec/package.json ./lib/api-spec/
+15ms
+
+[ 6/18] COPY lib/api-client-react/package.json ./lib/api-client-react/
+49ms
+
+[ 7/18] COPY lib/api-zod/package.json ./lib/api-zod/
+17ms
+
+[ 8/18] COPY lib/db/package.json ./lib/db/
+19ms
+
+[ 9/18] COPY scripts/package.json ./scripts/
+18ms
+
+1
+COPY artifacts/api-server/package.json ./artifacts/api-server/
+16ms
+
+1
+COPY artifacts/mobile/package.json ./artifacts/mobile/
+15ms
+
+1
+COPY artifacts/pitch-deck/package.json ./artifacts/pitch-deck/
+14ms
+
+1
+COPY artifacts/mockup-sandbox/package.json ./artifacts/mockup-sandbox/
+23ms
+
+1
+RUN pnpm install --frozen-lockfile
+8s
+Done in 7.7s using pnpm v10.33.0
+
+1
+COPY . .
+1s
+
+1
+RUN pnpm --filter @workspace/api-server run build
+829ms
+⚡ Done in 151ms
+
+1
+RUN PORT=3000 BASE_PATH=/pitch-deck/ pnpm --filter @workspace/pitch-deck run build
+2s
+✓ built in 1.30s
+
+1
+RUN pnpm --filter @workspace/mobile run build
+14s
+Expo web export complete → dist/
+
+importing to docker
+28s
+
+auth
+sharing credentials for production-asia-southeast1-eqsg3a.railway-registry.com
+0ms
+Build time: 90.54 seconds
+ 
+====================
+Starting Healthcheck
+====================
+Path: /api/healthz
+Retry window: 2m0s
+ 
+Attempt #1 failed with service unavailable. Continuing to retry for 1m49s
+Attempt #2 failed with service unavailable. Continuing to retry for 1m38s
+Attempt #3 failed with service unavailable. Continuing to retry for 1m26s
+Attempt #4 failed with service unavailable. Continuing to retry for 1m12s
+Attempt #5 failed with service unavailable. Continuing to retry for 54s
+Attempt #6 failed with service unavailable. Continuing to retry for 27s
+ 
+1/1 replicas never became healthy!
+
+Healthcheck failed!
