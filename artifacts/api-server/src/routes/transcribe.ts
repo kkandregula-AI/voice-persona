@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import multer from "multer";
-import { openai, isAIConfigured } from "../lib/openai";
+import { openai, isAIConfigured, transcribeModel } from "../lib/openai";
 
 const router: IRouter = Router();
 
@@ -31,7 +31,7 @@ router.post("/ai/transcribe", upload.single("audio"), async (req, res) => {
 
     const result = await openai.audio.transcriptions.create({
       file: audioFile,
-      model: "gpt-4o-mini-transcribe",
+      model: transcribeModel(),
       response_format: "json",
       ...(langCode ? { language: langCode } : {}),
     });

@@ -491,7 +491,7 @@ export default function LiveCaptionsTab() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Transcription failed";
       setErrorMsg(msg);
-      if (listeningRef.current) setStatus("listening");
+      setStatus(listeningRef.current ? "listening" : "idle");
     }
   }, [translateToAllTargets]);
 

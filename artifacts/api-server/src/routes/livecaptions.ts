@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import multer from "multer";
-import { openai, isAIConfigured } from "../lib/openai";
+import { openai, isAIConfigured, transcribeModel } from "../lib/openai";
 
 const router: IRouter = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
@@ -97,7 +97,7 @@ router.post("/live-captions/transcribe", upload.single("audio"), async (req, res
     // ("verbose_json" is not supported by this model on the Replit proxy)
     const transcribeResult = await openai.audio.transcriptions.create({
       file: audioFile,
-      model: "gpt-4o-mini-transcribe",
+      model: transcribeModel(),
       response_format: "json",
     } as Parameters<typeof openai.audio.transcriptions.create>[0]);
 

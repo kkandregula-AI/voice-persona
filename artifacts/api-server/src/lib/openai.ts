@@ -14,3 +14,15 @@ export function isAIConfigured(): boolean {
     process.env["OPENAI_API_KEY"]
   );
 }
+
+export function isReplitProxy(): boolean {
+  return !!process.env["AI_INTEGRATIONS_OPENAI_BASE_URL"];
+}
+
+export function transcribeModel(): string {
+  return isReplitProxy() ? "gpt-4o-mini-transcribe" : "whisper-1";
+}
+
+export function chatModel(): string {
+  return "gpt-4o-mini";
+}
