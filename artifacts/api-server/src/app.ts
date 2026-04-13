@@ -37,13 +37,7 @@ app.use(express.urlencoded({ extended: true, limit: "15mb" }));
 app.use("/api", router);
 
 if (process.env.NODE_ENV === "production") {
-  const pitchDeckDir = path.join(workspaceRoot, "artifacts/pitch-deck/dist/public");
   const mobileDir = path.join(workspaceRoot, "artifacts/mobile/dist");
-
-  app.use("/pitch-deck", express.static(pitchDeckDir));
-  app.get("/pitch-deck/*", (_req, res) => {
-    res.sendFile(path.join(pitchDeckDir, "index.html"));
-  });
 
   app.use(express.static(mobileDir));
   app.get("*", (_req, res) => {
