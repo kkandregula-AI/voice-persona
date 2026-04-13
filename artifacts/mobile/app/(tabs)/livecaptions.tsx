@@ -525,8 +525,8 @@ export default function LiveCaptionsTab() {
       if (!res.ok) {
         let errMsg = "Transcription failed";
         try { const e = await res.json() as { error?: string }; errMsg = e.error ?? errMsg; } catch { /* ignore */ }
-        // 503 = OpenAI key not configured on server — fall back to Web Speech API if available
-        if (res.status === 503 && hasSpeechRecognition() && streamRef.current) {
+        // Server error — fall back to Web Speech API if the browser supports it
+        if (hasSpeechRecognition() && streamRef.current) {
           webSpeechModeRef.current = true;
           // Stop MediaRecorder loop — Web Speech takes over
           if (chunkTimerRef.current !== null) { clearTimeout(chunkTimerRef.current); chunkTimerRef.current = null; }
@@ -631,6 +631,52 @@ export default function LiveCaptionsTab() {
       return;
     }
 
+    // ── Web Speech API path (iOS Safari / Chrome) ──────────────────────────
+    // Must be started synchronously within a user gesture — do it here, not later.
+    if (hasSpeechRecognition()) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        streamRef.current = stream;
+        listeningRef.current = true;
+        webSpeechModeRef.current = true;
+        segmentStartRef.current = null; // No 10s countdown in Web Speech mode
+        const stopFn = transcribeWithWebSpeech(
+          stream,
+          targetLangsRef.current[0] ?? "en",
+          (text, detectedLang) => {
+            if (!listeningRef.current) return;
+            accumulatedRef.current = accumulatedRef.current ? `${accumulatedRef.current} ${text}` : text;
+            setTranscript(accumulatedRef.current);
+            setLangCode(detectedLang);
+            setLangLabel(getLangLabel(detectedLang));
+            setCaptionTimestamp(stamp());
+            setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 150);
+            void translateToAllTargets(text, detectedLang);
+          },
+          (errMsg) => {
+            listeningRef.current = false;
+            webSpeechModeRef.current = false;
+            setErrorMsg(errMsg);
+            setStatus("error");
+          },
+        );
+        webSpeechStopRef.current = stopFn;
+        return; // Web Speech is running — no MediaRecorder needed
+      } catch (err) {
+        listeningRef.current = false;
+        webSpeechModeRef.current = false;
+        const msg = err instanceof Error ? err.message : "Microphone access denied";
+        if (msg.toLowerCase().includes("denied") || msg.toLowerCase().includes("permission")) {
+          setErrorMsg("Microphone permission denied. Please allow mic access in your browser settings and try again.");
+        } else {
+          setErrorMsg(msg);
+        }
+        setStatus("error");
+        return;
+      }
+    }
+
+    // ── MediaRecorder + server transcription path (non-Web Speech browsers) ─
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       streamRef.current = stream;
@@ -696,7 +742,7 @@ export default function LiveCaptionsTab() {
       }
       setStatus("error");
     }
-  }, [status, sendChunk]);
+  }, [status, sendChunk, translateToAllTargets]);
 
   const handleStopListening = useCallback(() => {
     listeningRef.current = false;
