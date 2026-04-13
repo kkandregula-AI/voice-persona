@@ -448,9 +448,12 @@ export default function LiveCaptionsTab() {
   const activeRoomIdRef = useRef<string>("");
   const viewerLastTsRef = useRef<number>(0);
 
-  // Load history and target langs on mount
+  // Load history, source lang, and target langs on mount
   useEffect(() => {
     setHistory(loadHistory());
+    const sl = loadSourceLang();
+    setSourceLang(sl);
+    sourceLangRef.current = sl;
     const tl = loadTargetLangs();
     setTargetLangs(tl);
     targetLangsRef.current = tl;
@@ -568,17 +571,18 @@ export default function LiveCaptionsTab() {
           try { if (recorderRef.current?.state === "recording") recorderRef.current.stop(); } catch { /* ignore */ }
           const stopFn = transcribeWithWebSpeech(
             streamRef.current,
-            targetLangsRef.current[0] ?? "en",
+            sourceLangRef.current,
             () => listeningRef.current,
-            (text, detectedLang) => {
+            (text) => {
+              const sl = sourceLangRef.current;
               // No listeningRef guard here — rec.stop() dispatches final result AFTER listeningRef=false
               accumulatedRef.current = accumulatedRef.current ? `${accumulatedRef.current} ${text}` : text;
               setTranscript(accumulatedRef.current);
-              setLangCode(detectedLang);
-              setLangLabel(getLangLabel(detectedLang));
+              setLangCode(sl);
+              setLangLabel(getLangLabel(sl));
               setCaptionTimestamp(stamp());
               setTimeout(() => scrollRef.current?.scrollTo({ y: captionPanelYRef.current, animated: true }), 150);
-              void translateToAllTargets(text, detectedLang);
+              void translateToAllTargets(text, sl);
             },
             (errMsg2) => {
               listeningRef.current = false;
@@ -678,17 +682,18 @@ export default function LiveCaptionsTab() {
         segmentStartRef.current = null; // No 10s countdown in Web Speech mode
         const stopFn = transcribeWithWebSpeech(
           stream,
-          targetLangsRef.current[0] ?? "en",
+          sourceLangRef.current,         // ← the language the speaker is using
           () => listeningRef.current,
-          (text, detectedLang) => {
+          (text) => {
+            const sl = sourceLangRef.current;
             // No listeningRef guard here — rec.stop() dispatches final result AFTER listeningRef=false
             accumulatedRef.current = accumulatedRef.current ? `${accumulatedRef.current} ${text}` : text;
             setTranscript(accumulatedRef.current);
-            setLangCode(detectedLang);
-            setLangLabel(getLangLabel(detectedLang));
+            setLangCode(sl);
+            setLangLabel(getLangLabel(sl));
             setCaptionTimestamp(stamp());
             setTimeout(() => scrollRef.current?.scrollTo({ y: captionPanelYRef.current, animated: true }), 150);
-            void translateToAllTargets(text, detectedLang);
+            void translateToAllTargets(text, sl);
           },
           (errMsg) => {
             listeningRef.current = false;
@@ -1366,6 +1371,36 @@ export default function LiveCaptionsTab() {
           </Text>
         </View>
 
+        {/* ── Speaking-in picker ──────────────────────────────────────── */}
+        <View style={styles.sourceLangCard}>
+          <Text style={styles.sourceLangTitle}>🎤 Speaking in:</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.sourceLangRow}
+          >
+            {[...INDIAN_LANG_OPTIONS, ...INTL_LANG_OPTIONS].map((opt) => {
+              const sel = sourceLang === opt.code;
+              return (
+                <Pressable
+                  key={opt.code}
+                  style={[styles.srcChip, sel && styles.srcChipActive]}
+                  onPress={() => {
+                    if (isLive) return;
+                    setSourceLang(opt.code);
+                    sourceLangRef.current = opt.code;
+                    saveSourceLang(opt.code);
+                  }}
+                >
+                  <Text style={[styles.srcChipText, sel && styles.srcChipTextActive]}>
+                    {opt.flag} {opt.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+
         {/* ── Mic Controls ────────────────────────────────────────────── */}
         <View style={styles.controlsCard}>
           <View style={styles.controlsRow}>
@@ -1916,6 +1951,47 @@ const styles = StyleSheet.create({
     fontStyle: "italic",
     textAlign: "center",
     paddingTop: 2,
+  },
+
+  // Source lang picker
+  sourceLangCard: {
+    backgroundColor: Colors.card,
+    borderRadius: 16,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  sourceLangTitle: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: Colors.textSecondary,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    marginBottom: 8,
+  },
+  sourceLangRow: {
+    gap: 6,
+    paddingBottom: 2,
+  },
+  srcChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    backgroundColor: "#1A1A28",
+    borderWidth: 1,
+    borderColor: "#2A2A40",
+  },
+  srcChipActive: {
+    backgroundColor: "#7C3AED22",
+    borderColor: "#A78BFA",
+  },
+  srcChipText: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  srcChipTextActive: {
+    color: "#A78BFA",
+    fontWeight: "700",
   },
 
   // Controls card
