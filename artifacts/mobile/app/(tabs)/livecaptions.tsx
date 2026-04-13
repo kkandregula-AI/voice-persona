@@ -22,6 +22,7 @@ const ACCENT_LIVE_BORDER = "#22C55E44";
 // ── Storage keys ────────────────────────────────────────────────────────────
 const STORAGE_KEY_HISTORY = "lc_history_v1";
 const STORAGE_KEY_TARGET_LANGS = "lc_target_langs_v1";
+const STORAGE_KEY_SOURCE_LANG  = "lc_source_lang_v1";
 
 // ── Language definitions ────────────────────────────────────────────────────
 // Indian languages (reused from Travel Talk, same codes)
@@ -233,6 +234,15 @@ function saveTargetLangs(langs: string[]) {
   localStorage.setItem(STORAGE_KEY_TARGET_LANGS, JSON.stringify(langs));
 }
 
+function loadSourceLang(): string {
+  if (typeof localStorage === "undefined") return "en";
+  try { return localStorage.getItem(STORAGE_KEY_SOURCE_LANG) ?? "en"; } catch { return "en"; }
+}
+function saveSourceLang(lang: string) {
+  if (typeof localStorage === "undefined") return;
+  try { localStorage.setItem(STORAGE_KEY_SOURCE_LANG, lang); } catch {}
+}
+
 // ── Audio helpers ────────────────────────────────────────────────────────────
 
 function getBestMimeType(): string {
@@ -384,6 +394,10 @@ export default function LiveCaptionsTab() {
   const [langLabel, setLangLabel] = useState<string>("");
   const [transcript, setTranscript] = useState<string>("");
   const [captionTimestamp, setCaptionTimestamp] = useState<string>("");
+
+  // Source language (language the speaker uses)
+  const [sourceLang, setSourceLang] = useState<string>("en");
+  const sourceLangRef = useRef<string>("en");
 
   // Multi-target language translations
   const [targetLangs, setTargetLangs] = useState<string[]>(["en"]);
