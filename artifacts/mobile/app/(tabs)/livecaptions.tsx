@@ -257,6 +257,75 @@ function mimeToExt(mime: string): string {
   return "webm";
 }
 
+// ── Web Speech API fallback transcription ────────────────────────────────────
+
+type SpeechRecognitionEvent = {
+  results: { [index: number]: { [index: number]: { transcript: string } }; length: number };
+  resultIndex: number;
+};
+
+function hasSpeechRecognition(): boolean {
+  if (typeof window === "undefined") return false;
+  return !!(
+    (window as unknown as Record<string, unknown>)["SpeechRecognition"] ||
+    (window as unknown as Record<string, unknown>)["webkitSpeechRecognition"]
+  );
+}
+
+type WebSpeechRecognitionType = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+  onresult: ((e: SpeechRecognitionEvent) => void) | null;
+  onerror: ((e: { error: string }) => void) | null;
+  onend: (() => void) | null;
+};
+
+function transcribeWithWebSpeech(
+  stream: MediaStream,
+  langCode: string,
+  onResult: (text: string, detectedLang: string) => void,
+  onError: (msg: string) => void,
+): (() => void) {
+  const Win = window as unknown as Record<string, unknown>;
+  const SpeechRecognitionCtor =
+    (Win["SpeechRecognition"] as (new () => WebSpeechRecognitionType) | undefined) ??
+    (Win["webkitSpeechRecognition"] as (new () => WebSpeechRecognitionType) | undefined);
+
+  if (!SpeechRecognitionCtor) return () => {};
+
+  void stream; // stream is used for mic permission but Web Speech manages its own
+
+  const rec = new SpeechRecognitionCtor();
+  rec.continuous = true;
+  rec.interimResults = false;
+  const bcp = SPEECH_LANG_MAP[langCode] ?? "en-US";
+  rec.lang = bcp;
+
+  rec.onresult = (e: SpeechRecognitionEvent) => {
+    let text = "";
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      text += e.results[i]![0]!.transcript;
+    }
+    if (text.trim()) onResult(text.trim(), langCode || "en");
+  };
+
+  rec.onerror = (e: { error: string }) => {
+    if (e.error !== "no-speech" && e.error !== "aborted") {
+      onError(`Speech recognition error: ${e.error}`);
+    }
+  };
+
+  rec.onend = () => { /* restarted externally */ };
+
+  try { rec.start(); } catch { /* already started */ }
+
+  return () => { try { rec.stop(); } catch { /* ignore */ } };
+}
+
 // ── TTS helper ───────────────────────────────────────────────────────────────
 
 function speakText(
@@ -337,6 +406,8 @@ export default function LiveCaptionsTab() {
   const accumulatedRef = useRef<string>("");
   const accumulatedByLangRef = useRef<Record<string, string>>({});
   const listeningRef = useRef<boolean>(false);
+  const webSpeechModeRef = useRef<boolean>(false);
+  const webSpeechStopRef = useRef<(() => void) | null>(null);
   const targetLangsRef = useRef<string[]>(["en"]);
   const viewerPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const activeRoomIdRef = useRef<string>("");
@@ -452,8 +523,39 @@ export default function LiveCaptionsTab() {
       });
 
       if (!res.ok) {
-        const err = await res.json() as { error?: string };
-        throw new Error(err.error ?? "Transcription failed");
+        let errMsg = "Transcription failed";
+        try { const e = await res.json() as { error?: string }; errMsg = e.error ?? errMsg; } catch { /* ignore */ }
+        // 503 = OpenAI key not configured on server — fall back to Web Speech API if available
+        if (res.status === 503 && hasSpeechRecognition() && streamRef.current) {
+          webSpeechModeRef.current = true;
+          // Stop MediaRecorder loop — Web Speech takes over
+          if (chunkTimerRef.current !== null) { clearTimeout(chunkTimerRef.current); chunkTimerRef.current = null; }
+          try { if (recorderRef.current?.state === "recording") recorderRef.current.stop(); } catch { /* ignore */ }
+          const stopFn = transcribeWithWebSpeech(
+            streamRef.current,
+            targetLangsRef.current[0] ?? "en",
+            (text, detectedLang) => {
+              if (!listeningRef.current) return;
+              accumulatedRef.current = accumulatedRef.current ? `${accumulatedRef.current} ${text}` : text;
+              setTranscript(accumulatedRef.current);
+              setLangCode(detectedLang);
+              setLangLabel(getLangLabel(detectedLang));
+              setCaptionTimestamp(stamp());
+              setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 150);
+              void translateToAllTargets(text, detectedLang);
+            },
+            (errMsg2) => {
+              listeningRef.current = false;
+              webSpeechModeRef.current = false;
+              setErrorMsg(errMsg2);
+              setStatus("error");
+            },
+          );
+          webSpeechStopRef.current = stopFn;
+          setStatus("listening");
+          return;
+        }
+        throw new Error(errMsg);
       }
 
       const data = await res.json() as {
@@ -479,6 +581,9 @@ export default function LiveCaptionsTab() {
       setCaptionTimestamp(stamp());
       setStatus(listeningRef.current ? "listening" : "idle");
 
+      // Scroll down so the results panel is visible
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 150);
+
       await translateToAllTargets(newText, data.languageCode);
 
       if (activeRoomIdRef.current) {
@@ -489,9 +594,18 @@ export default function LiveCaptionsTab() {
         void pushToRoom(accumulatedRef.current, translationsSnapshot);
       }
     } catch (err) {
+      // Always surface errors — status "error" is the only way the error box renders
+      listeningRef.current = false;
+      if (chunkTimerRef.current !== null) { clearTimeout(chunkTimerRef.current); chunkTimerRef.current = null; }
+      try { if (recorderRef.current?.state === "recording") recorderRef.current.stop(); } catch { /* ignore */ }
+      setTimeout(() => {
+        try { streamRef.current?.getTracks().forEach((t) => t.stop()); } catch { /* ignore */ }
+        recorderRef.current = null;
+        streamRef.current = null;
+      }, 400);
       const msg = err instanceof Error ? err.message : "Transcription failed";
       setErrorMsg(msg);
-      setStatus(listeningRef.current ? "listening" : "idle");
+      setStatus("error");
     }
   }, [translateToAllTargets]);
 
@@ -508,6 +622,8 @@ export default function LiveCaptionsTab() {
     setCaptionTimestamp("");
     accumulatedRef.current = "";
     accumulatedByLangRef.current = {};
+    webSpeechModeRef.current = false;
+    if (webSpeechStopRef.current) { webSpeechStopRef.current(); webSpeechStopRef.current = null; }
 
     if (typeof navigator === "undefined" || !navigator.mediaDevices) {
       setStatus("error");
@@ -589,6 +705,12 @@ export default function LiveCaptionsTab() {
       clearTimeout(chunkTimerRef.current);
       chunkTimerRef.current = null;
     }
+    // Stop Web Speech if in fallback mode
+    if (webSpeechStopRef.current) {
+      webSpeechStopRef.current();
+      webSpeechStopRef.current = null;
+    }
+    webSpeechModeRef.current = false;
     try {
       if (recorderRef.current?.state === "recording") recorderRef.current.stop();
     } catch {}
@@ -607,6 +729,7 @@ export default function LiveCaptionsTab() {
       segmentStartRef.current = null;
       if (chunkTimerRef.current !== null) clearTimeout(chunkTimerRef.current);
       if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+      if (webSpeechStopRef.current) { webSpeechStopRef.current(); webSpeechStopRef.current = null; }
       if (typeof window !== "undefined") window.speechSynthesis?.cancel();
       try { recorderRef.current?.stop(); } catch {}
       try { streamRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
