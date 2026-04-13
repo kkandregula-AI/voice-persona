@@ -21,7 +21,7 @@ RUN pnpm install --frozen-lockfile
 COPY . .
 
 RUN pnpm --filter @workspace/api-server run build
-RUN BASE_PATH=/pitch-deck/ pnpm --filter @workspace/pitch-deck run build
+RUN PORT=3000 BASE_PATH=/pitch-deck/ pnpm --filter @workspace/pitch-deck run build
 RUN pnpm --filter @workspace/mobile run build
 
 ENV NODE_ENV=production
