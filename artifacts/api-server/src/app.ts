@@ -2,8 +2,12 @@ import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import path from "path";
+import { fileURLToPath } from "url";
 import router from "./routes";
 import { logger } from "./lib/logger";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const workspaceRoot = path.resolve(__dirname, "..", "..", "..");
 
 const app: Express = express();
 
@@ -32,12 +36,19 @@ app.use(express.urlencoded({ extended: true, limit: "15mb" }));
 
 app.use("/api", router);
 
-// Temporary source download endpoint
-app.get("/api/download-source", (_req, res) => {
-  const file = "/tmp/voice-persona-ai.tar.gz";
-  res.download(file, "voice-persona-ai.tar.gz", (err) => {
-    if (err && !res.headersSent) res.status(404).json({ error: "File not ready" });
+if (process.env.NODE_ENV === "production") {
+  const pitchDeckDir = path.join(workspaceRoot, "artifacts/pitch-deck/dist/public");
+  const mobileDir = path.join(workspaceRoot, "artifacts/mobile/dist");
+
+  app.use("/pitch-deck", express.static(pitchDeckDir));
+  app.get("/pitch-deck/*", (_req, res) => {
+    res.sendFile(path.join(pitchDeckDir, "index.html"));
   });
-});
+
+  app.use(express.static(mobileDir));
+  app.get("*", (_req, res) => {
+    res.sendFile(path.join(mobileDir, "index.html"));
+  });
+}
 
 export default app;

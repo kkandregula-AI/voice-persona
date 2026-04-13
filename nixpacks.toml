@@ -1,0 +1,18 @@
+[phases.setup]
+nixPkgs = ["nodejs_20"]
+
+[phases.install]
+cmds = [
+  "npm install -g pnpm@9",
+  "pnpm install --frozen-lockfile"
+]
+
+[phases.build]
+cmds = [
+  "pnpm --filter @workspace/api-server run build",
+  "BASE_PATH=/pitch-deck/ pnpm --filter @workspace/pitch-deck run build",
+  "BASE_PATH=/ pnpm --filter @workspace/mobile run build"
+]
+
+[start]
+cmd = "node --enable-source-maps artifacts/api-server/dist/index.mjs"
